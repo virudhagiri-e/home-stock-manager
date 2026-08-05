@@ -11,6 +11,7 @@ import {
 } from './api'
 import './App.css'
 import type { ItemCategory, MedicineFor, ShoppingItem, StockItem, Unit, User } from './types'
+import { formatNeedText, isBelowThreshold } from './utils/stock.js'
 
 const categories: ItemCategory[] = ['GROCERY', 'MEDICINE', 'HOUSEHOLD', 'OTHER']
 const units: Unit[] = [
@@ -25,6 +26,7 @@ const units: Unit[] = [
   'PACKET',
 ]
 const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']
+type QuickActionMode = 'REDUCE' | 'ADD' | 'THRESHOLD'
 
 const emptyForm = {
   name: '',
@@ -50,11 +52,20 @@ function App() {
   const [message, setMessage] = useState('')
   const [filter, setFilter] = useState<ItemCategory | 'ALL'>('ALL')
   const [form, setForm] = useState(emptyForm)
+  const [quickActionItem, setQuickActionItem] = useState<StockItem | null>(null)
+  const [quickActionMode, setQuickActionMode] = useState<QuickActionMode | null>(null)
+  const [quickActionValue, setQuickActionValue] = useState('1')
+  const [isQuickActionSaving, setIsQuickActionSaving] = useState(false)
+  const [quickActionFeedback, setQuickActionFeedback] = useState('')
 
   async function loadData(currentToken: string) {
     const [allItems, shopping] = await Promise.all([listItems(currentToken), shoppingList(currentToken)])
     setItems(allItems)
     setShop(shopping)
+  }
+
+  function parseNumericInput(value: string) {
+    return Number(value.trim().replace(',', '.'))
   }
 
   async function handleLogin(e: FormEvent) {
@@ -130,43 +141,79 @@ function App() {
     }
   }
 
-  async function reduce(item: StockItem) {
-    if (!token) return
-
-    const input = window.prompt(`Reduce ${item.name} by:`, '1')
-    if (!input) return
-
-    const value = Number(input)
-    if (Number.isNaN(value) || value <= 0) {
-      setError('Please enter a valid positive value')
-      return
-    }
-
-    try {
-      await adjustStock(token, item.id, -value, 'Manual reduce')
-      await loadData(token)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to reduce stock')
-    }
+  function openQuickAction(item: StockItem, mode: QuickActionMode) {
+    setError('')
+    setMessage('')
+    setQuickActionFeedback('')
+    setQuickActionItem(item)
+    setQuickActionMode(mode)
+    setQuickActionValue(mode === 'THRESHOLD' ? String(item.threshold) : '1')
   }
 
-  async function add(item: StockItem) {
-    if (!token) return
+  function closeQuickAction() {
+    setQuickActionItem(null)
+    setQuickActionMode(null)
+    setQuickActionValue('1')
+    setQuickActionFeedback('')
+    setIsQuickActionSaving(false)
+  }
 
-    const input = window.prompt(`Add stock to ${item.name}:`, '1')
-    if (!input) return
+  async function applyQuickAction() {
+    if (!token || !quickActionItem || !quickActionMode || isQuickActionSaving) return
 
-    const value = Number(input)
-    if (Number.isNaN(value) || value <= 0) {
-      setError('Please enter a valid positive value')
+    const value = parseNumericInput(quickActionValue)
+    const requiresPositiveValue = quickActionMode === 'ADD' || quickActionMode === 'REDUCE'
+    if (Number.isNaN(value) || (requiresPositiveValue && value <= 0) || (!requiresPositiveValue && value < 0)) {
+      setError(
+        quickActionMode === 'THRESHOLD'
+          ? 'Please enter a valid threshold value'
+          : 'Please enter a valid positive value',
+      )
       return
     }
 
+    setError('')
+    setMessage('')
+    setQuickActionFeedback('Applying update...')
+    setIsQuickActionSaving(true)
+
     try {
-      await adjustStock(token, item.id, value, 'Manual add')
+      let updatedItem: StockItem
+      if (quickActionMode === 'THRESHOLD') {
+        updatedItem = await updateItem(token, quickActionItem.id, { threshold: value })
+      } else {
+        const delta = quickActionMode === 'REDUCE' ? -value : value
+        updatedItem = await adjustStock(
+          token,
+          quickActionItem.id,
+          delta,
+          quickActionMode === 'REDUCE' ? 'Manual reduce' : 'Manual add',
+        )
+      }
+
+      setItems((prev) => prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)))
+
+      setQuickActionItem(updatedItem)
+      setQuickActionFeedback('Updated. Refreshing latest values...')
+
+      // Keep main inventory snappy; refresh shopping list separately.
+      try {
+        const updatedShopping = await shoppingList(token)
+        setShop(updatedShopping)
+      } catch {
+        setMessage('Item updated. Shopping list will refresh on next reload.')
+      }
+
       await loadData(token)
+
+      setMessage('Item updated')
+      setQuickActionFeedback('Update applied successfully.')
+      setQuickActionValue(quickActionMode === 'THRESHOLD' ? String(updatedItem.threshold) : '1')
+      setIsQuickActionSaving(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to add stock')
+      setError(err instanceof Error ? err.message : 'Unable to update item')
+      setQuickActionFeedback('Update failed. Check the error message above.')
+      setIsQuickActionSaving(false)
     }
   }
 
@@ -181,25 +228,6 @@ function App() {
       await loadData(token)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to delete item')
-    }
-  }
-
-  async function quickThreshold(item: StockItem) {
-    if (!token) return
-    const input = window.prompt(`Set threshold for ${item.name}:`, String(item.threshold))
-    if (!input) return
-
-    const value = Number(input)
-    if (Number.isNaN(value) || value < 0) {
-      setError('Please enter a valid threshold value')
-      return
-    }
-
-    try {
-      await updateItem(token, item.id, { threshold: value })
-      await loadData(token)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to update threshold')
     }
   }
 
@@ -353,9 +381,7 @@ function App() {
             {shop.map((item) => (
               <li key={item.id}>
                 <span>{item.name}</span>
-                <small>
-                  Need +{item.missingBy} {item.unit} (current {item.quantity}, threshold {item.threshold})
-                </small>
+                <small>{formatNeedText(item.quantity, item.threshold, item.unit)}</small>
               </li>
             ))}
           </ul>
@@ -384,6 +410,40 @@ function App() {
           ))}
         </div>
 
+        {quickActionItem && quickActionMode ? (
+          <div className="quick-action" role="group" aria-label="Quick action">
+            <span className="quick-action-title">
+              {quickActionMode === 'ADD'
+                ? `Add stock to ${quickActionItem.name}`
+                : quickActionMode === 'REDUCE'
+                  ? `Reduce stock from ${quickActionItem.name}`
+                  : `Set threshold for ${quickActionItem.name}`}
+            </span>
+            <input
+              aria-label="Action value"
+              type="number"
+              min={quickActionMode === 'THRESHOLD' ? '0' : '0.01'}
+              step="0.01"
+              value={quickActionValue}
+              onChange={(e) => setQuickActionValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void applyQuickAction()
+                }
+              }}
+              required
+            />
+            <button type="button" onClick={() => void applyQuickAction()} disabled={isQuickActionSaving}>
+              {isQuickActionSaving ? 'Saving...' : 'Apply'}
+            </button>
+            <button type="button" onClick={closeQuickAction} disabled={isQuickActionSaving}>
+              Cancel
+            </button>
+            {quickActionFeedback ? <small className="quick-action-feedback">{quickActionFeedback}</small> : null}
+          </div>
+        ) : null}
+
         <div className="table-wrap">
           <table>
             <thead>
@@ -398,7 +458,7 @@ function App() {
             </thead>
             <tbody>
               {filteredItems.map((item) => (
-                <tr key={item.id} className={item.quantity < item.threshold ? 'low' : ''}>
+                <tr key={item.id} className={isBelowThreshold(item.quantity, item.threshold) ? 'low' : ''}>
                   <td>{item.name}</td>
                   <td>{item.category}</td>
                   <td>
@@ -410,13 +470,13 @@ function App() {
                   <td>{item.medicineFor ?? '-'}</td>
                   <td>
                     <div className="row-actions">
-                      <button type="button" onClick={() => reduce(item)}>
+                      <button type="button" onClick={() => openQuickAction(item, 'REDUCE')}>
                         Reduce
                       </button>
-                      <button type="button" onClick={() => add(item)}>
+                      <button type="button" onClick={() => openQuickAction(item, 'ADD')}>
                         Add
                       </button>
-                      <button type="button" onClick={() => quickThreshold(item)}>
+                      <button type="button" onClick={() => openQuickAction(item, 'THRESHOLD')}>
                         Threshold
                       </button>
                       {user?.role === 'ADMIN' ? (

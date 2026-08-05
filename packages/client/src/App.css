@@ -100,6 +100,32 @@ button:hover {
   background: var(--button-strong);
 }
 
+.quick-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  background: #fffaf0;
+}
+
+.quick-action-title {
+  font-weight: 700;
+}
+
+.quick-action input {
+  width: 140px;
+}
+
+.quick-action-feedback {
+  display: block;
+  width: 100%;
+  color: #5c4a20;
+}
+
 .table-wrap {
   overflow: auto;
 }

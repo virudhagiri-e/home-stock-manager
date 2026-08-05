@@ -3,5 +3,5 @@ node_modules
 dist
 coverage
 *.log
-apps/api/prisma/dev.db
-apps/api/prisma/dev.db-journal
+packages/server/prisma/dev.db
+packages/server/prisma/dev.db-journal

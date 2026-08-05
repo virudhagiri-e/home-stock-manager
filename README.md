@@ -5,7 +5,7 @@ Web app to manage family groceries, medicines, and household stock with low-stoc
 ## Tech Stack
 
 - Frontend: React + TypeScript + Vite
-- Backend: Fastify + TypeScript
+- Backend: Express + TypeScript
 - ORM: Prisma
 - Local DB: SQLite (easy local setup)
 - Production DB suggestion: Postgres (Neon/Supabase free tier)
@@ -22,8 +22,15 @@ Web app to manage family groceries, medicines, and household stock with low-stoc
 
 ## Project Structure
 
-- `apps/api`: Fastify API + Prisma schema + seed script
-- `apps/web`: React frontend
+- `packages/server`: Express API + Prisma schema + seed script
+- `packages/client`: React frontend
+
+### Server Architecture
+
+- `src/controllers`: Request handling
+- `src/services`: Business logic
+- `src/repositories`: Data access
+- `src/middlewares`: Auth middleware and role guards
 
 ## Local Setup
 
@@ -36,8 +43,8 @@ npm install
 2. Create database schema and seed data:
 
 ```bash
-npm run prisma:push -w apps/api
-npm run prisma:seed -w apps/api
+npm run prisma:push -w packages/server
+npm run prisma:seed -w packages/server
 ```
 
 3. Start both API and web:
@@ -56,7 +63,7 @@ npm run dev
 
 Change these credentials immediately for non-local usage.
 
-Optional for custom config: copy `apps/api/.env.example` to `.env` and set values.
+Optional for custom config: copy `packages/server/.env.example` to `.env` and set values.
 
 ## API Endpoints (Core)
 
