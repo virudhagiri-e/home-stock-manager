@@ -8,6 +8,7 @@ apps/api/node_modules/
 apps/api/dist/
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
+apps/api/prisma/seed.js
 
 apps/web/node_modules/
 apps/web/dist/
