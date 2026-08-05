@@ -1,0 +1,83 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "sqlite"
+}
+
+enum UserRole {
+    ADMIN
+    FAMILY
+}
+
+enum ItemCategory {
+    GROCERY
+    MEDICINE
+    HOUSEHOLD
+    OTHER
+}
+
+enum Unit {
+    COUNT
+    GRAM
+    KILOGRAM
+    MILLILITER
+    LITER
+    TABLET
+    STRIP
+    BOTTLE
+    PACKET
+}
+
+enum MedicineFor {
+    ME
+    WIFE
+    BOTH
+    CHILD
+    FAMILY
+}
+
+model User {
+    id           String       @id @default(cuid())
+    name         String
+    email        String       @unique
+    passwordHash String
+    role         UserRole     @default(FAMILY)
+    createdAt    DateTime     @default(now())
+    updatedAt    DateTime     @updatedAt
+    stockEvents  StockEvent[]
+}
+
+model StockItem {
+    id          String       @id @default(cuid())
+    name        String
+    category    ItemCategory
+    unit        Unit
+    quantity    Float
+    threshold   Float
+    notes       String?
+    medicineFor MedicineFor?
+    createdAt   DateTime     @default(now())
+    updatedAt   DateTime     @updatedAt
+    stockEvents StockEvent[]
+
+    @@unique([name, category])
+    @@index([category])
+    @@index([quantity, threshold])
+}
+
+model StockEvent {
+    id         String   @id @default(cuid())
+    itemId     String
+    userId     String
+    delta      Float
+    afterValue Float
+    reason     String?
+    createdAt  DateTime @default(now())
+
+    item StockItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+    user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([itemId, createdAt])
+}

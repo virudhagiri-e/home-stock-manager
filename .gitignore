@@ -1,0 +1,13 @@
+node_modules/
+*.log
+.env
+.env.*
+!.env.example
+
+apps/api/node_modules/
+apps/api/dist/
+apps/api/prisma/dev.db
+apps/api/prisma/dev.db-journal
+
+apps/web/node_modules/
+apps/web/dist/
