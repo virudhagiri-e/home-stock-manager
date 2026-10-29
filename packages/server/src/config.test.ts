@@ -68,10 +68,7 @@ describe('runtime configuration', () => {
 
   it('accepts the WebSocket transport for Neon URLs', async () => {
     productionEnvironment()
-    vi.stubEnv(
-      'DATABASE_URL',
-      'postgresql://app@ep-test-pooler.eu-central-1.aws.neon.tech/neondb',
-    )
+    vi.stubEnv('DATABASE_URL', 'postgresql://app@ep-test-pooler.eu-central-1.aws.neon.tech/neondb')
     vi.stubEnv('DATABASE_TRANSPORT', 'websocket')
     const { env } = await import('./config.js')
     expect(env.DATABASE_TRANSPORT).toBe('websocket')
