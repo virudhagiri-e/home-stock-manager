@@ -19,6 +19,9 @@ Web app to manage family groceries, medicines, and household stock with low-stoc
 - Shopping list endpoint and UI: items where `quantity < threshold`.
 - Medicine grouping by person: `ME`, `WIFE`, `BOTH`, `CHILD`, `FAMILY`.
 - Seed dataset based on your grocery and medicine examples.
+- Responsive household dashboard with inventory search, category filters, and a low-stock filter.
+- Add essentials from the **Add item** dialog; items below **Minimum stock** appear in the shopping list.
+- Stock row actions let you add, reduce, or change the minimum; deletion remains admin-only.
 
 ## Project Structure
 
