@@ -1,7 +1,12 @@
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
+import { PrismaNeon } from '@prisma/adapter-neon'
+import { PrismaPg } from '@prisma/adapter-pg'
 import { PrismaClient } from '@prisma/client'
 import { env } from './config.js'
 
-const adapter = new PrismaBetterSqlite3({ url: env.DATABASE_URL })
+// WebSocket transport tunnels Postgres over HTTPS (port 443) for networks that block port 5432.
+const adapter =
+  env.DATABASE_TRANSPORT === 'websocket'
+    ? new PrismaNeon({ connectionString: env.DATABASE_URL })
+    : new PrismaPg({ connectionString: env.DATABASE_URL })
 
 export const prisma = new PrismaClient({ adapter })

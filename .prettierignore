@@ -5,3 +5,5 @@ coverage
 *.log
 packages/server/prisma/dev.db
 packages/server/prisma/dev.db-journal
+test-results
+playwright-report

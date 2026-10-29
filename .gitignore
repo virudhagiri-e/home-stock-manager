@@ -12,3 +12,6 @@ packages/server/prisma/seed.js
 
 packages/client/node_modules/
 packages/client/dist/
+test-results/
+playwright-report/
+.neon

@@ -5,16 +5,71 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint-build:
+  validate:
+    name: Build, lint, and test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: homestock
+          POSTGRES_PASSWORD: homestock
+          POSTGRES_DB: home_stock_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U homestock -d home_stock_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://homestock:homestock@localhost:5432/home_stock_test
+      JWT_SECRET: ci-only-secret-not-for-deployment
+      CORS_ORIGIN: http://localhost:5173
+      E2E_DATABASE_RESET: 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
-      - run: npm install
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate
       - run: npm run build
       - run: npm run lint
-      - run: npm run format:check
+      - name: Check formatting of changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA=$(git hash-object -t tree /dev/null)
+          fi
+          mapfile -d '' files < <(git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" HEAD -- . ':!.github/skills/**')
+          if (( ${#files[@]} )); then
+            npx prettier --check --ignore-unknown "${files[@]}"
+          fi
+      - run: npm run test:unit
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Upload failed browser test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore

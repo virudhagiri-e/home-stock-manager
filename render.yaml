@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: home-stock-api
+    runtime: node
+    plan: free
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build -w packages/server
+    startCommand: npm run db:migrate && npm run start -w packages/server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+  - type: web
+    name: home-stock-web
+    runtime: static
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci --include=dev && npm run build -w packages/client
+    staticPublishPath: packages/client/dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

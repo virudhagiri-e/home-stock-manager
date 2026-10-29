@@ -19,13 +19,13 @@ export default defineConfig({
       command: 'npm run dev:server',
       url: 'http://localhost:4000/health',
       timeout: 120_000,
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVERS === 'true',
     },
     {
       command: 'npm run dev -w packages/client -- --host=localhost --port=5173',
       url: 'http://localhost:5173',
       timeout: 120_000,
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVERS === 'true',
     },
   ],
 })

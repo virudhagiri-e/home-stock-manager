@@ -2,6 +2,9 @@
   "name": "home-stock-manager",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -10,6 +13,11 @@
     "dev": "concurrently -n server,client -c cyan,magenta \"npm run dev -w packages/server\" \"npm run dev -w packages/client\"",
     "dev:server": "npm run dev -w packages/server",
     "dev:client": "npm run dev -w packages/client",
+    "db:start": "docker compose up -d --wait db",
+    "db:stop": "docker compose stop db",
+    "db:migrate": "npm run prisma:deploy -w packages/server",
+    "db:seed": "npm run prisma:seed -w packages/server",
+    "db:generate": "npm run prisma:generate -w packages/server",
     "build": "npm run build -w packages/server && npm run build -w packages/client",
     "lint": "npm run lint -w packages/server && npm run lint -w packages/client",
     "test": "npm run test:unit && npm run test:e2e",
@@ -31,8 +39,12 @@
   "license": "MIT",
   "description": "Family home stock manager for groceries, medicines, and household items.",
   "devDependencies": {
-    "concurrently": "^9.2.1",
     "@playwright/test": "^1.55.0",
+    "concurrently": "^9.2.1",
     "prettier": "^3.6.2"
+  },
+  "dependencies": {
+    "@neon/config": "^1.9.5",
+    "@neon/env": "^1.6.6"
   }
 }
