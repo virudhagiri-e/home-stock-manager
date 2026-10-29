@@ -5,9 +5,11 @@ import { prisma } from '../src/db.js'
 async function createAdmin() {
   const result = z
     .object({
-      name: z.string().trim().min(1),
-      email: z.email(),
-      password: z.string().min(12),
+      name: z.string('ADMIN_NAME is not set').trim().min(1, 'ADMIN_NAME is empty'),
+      email: z.email('ADMIN_EMAIL is not set or is not a valid email address'),
+      password: z
+        .string('ADMIN_PASSWORD is not set')
+        .min(12, 'ADMIN_PASSWORD must be at least 12 characters'),
     })
     .safeParse({
       name: process.env.ADMIN_NAME,
@@ -16,8 +18,9 @@ async function createAdmin() {
     })
 
   if (!result.success) {
+    const problems = result.error.issues.map((issue) => `  - ${issue.message}`).join('\n')
     throw new Error(
-      'Set ADMIN_NAME, a valid ADMIN_EMAIL, and ADMIN_PASSWORD (at least 12 characters).',
+      `Cannot create the administrator. Set these in the same terminal first:\n${problems}`,
     )
   }
 
