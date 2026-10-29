@@ -1832,3 +1832,12 @@ tbody tr:hover {
     margin-inline: -22px;
   }
 }
+
+@media (max-width: 359px) {
+  .main-nav {
+    gap: 4px;
+  }
+  .nav-link .icon {
+    display: none;
+  }
+}
