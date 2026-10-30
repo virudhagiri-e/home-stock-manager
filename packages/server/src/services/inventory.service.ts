@@ -20,6 +20,7 @@ type CreateOrUpdateItem = {
   threshold?: number
   notes?: string
   medicineFor?: MedicineFor
+  barcode?: string | null
 }
 
 export const inventoryService = {
@@ -33,7 +34,7 @@ export const inventoryService = {
     payload: Required<
       Pick<CreateOrUpdateItem, 'name' | 'category' | 'unit' | 'quantity' | 'threshold'>
     > &
-      Pick<CreateOrUpdateItem, 'notes' | 'medicineFor'>,
+      Pick<CreateOrUpdateItem, 'notes' | 'medicineFor' | 'barcode'>,
   ) {
     const normalizedPayload = {
       ...payload,

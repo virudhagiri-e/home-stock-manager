@@ -23,6 +23,8 @@ Web app to manage family groceries, medicines, and household stock with low-stoc
 - Responsive household dashboard with inventory search, category filters, and a low-stock filter.
 - Add essentials from the **Add item** dialog; items below **Minimum stock** appear in the shopping list.
 - Stock row actions let you add, reduce, or change the minimum; deletion remains admin-only.
+- Barcode scanning with the phone camera, a webcam, a photo, or the typed number fills in the
+  Add item form (see [Barcode scanning](#barcode-scanning)).
 
 ## Project Structure
 
@@ -132,6 +134,52 @@ It refuses to overwrite an existing account.
 - `DELETE /items/:id` (admin only)
 - `GET /shopping-list`
 - `GET /medicines/grouped`
+- `GET /barcodes/:code`: finds the item linked to a barcode, otherwise looks the product up
+
+## Barcode scanning
+
+**Scan** (next to **Add item**, and inside the Add item form) reads a retail barcode
+(EAN-13, EAN-8 or UPC-A) and then:
+
+1. **Barcode already linked to an item** → opens that item's **Bought** box.
+2. **Product found** in [Open Food Facts](https://world.openfoodfacts.org) (food) or
+   [Open Products Facts](https://world.openproductsfacts.org) (household) → fills in the Add
+   item form: name, brand (in notes), category, unit and package size. If an existing item
+   without a barcode has a similar name, the form offers **This is my …** to link the barcode
+   to it instead of creating a duplicate.
+3. **Unknown product** (most medicines and local products) → opens the form with the barcode
+   attached. Fill it in once; the next scan finds it instantly.
+
+The user always reviews the form before saving. Barcodes are stored per item (unique) and can be
+removed in **Edit**.
+
+How a barcode is read, with fallbacks for every device:
+
+| Situation                                                         | Behaviour                                                                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Phone or desktop with a camera                                    | Live preview using the back camera or webcam; scans automatically. A light button appears where the camera supports a torch |
+| Camera permission denied, no camera, or no secure (HTTPS) context | Explains why and offers the options below                                                                                   |
+| **Use a photo**                                                   | Phones offer the camera or gallery; desktops a file picker, drag-and-drop, or paste (Ctrl+V)                                |
+| **Type the number**                                               | The digits under the barcode, validated with the check digit                                                                |
+| No barcode in the photo, or lookup service unavailable            | A clear message; the user can retry or fill the form by hand                                                                |
+
+Privacy and performance:
+
+- Barcodes are decoded **on the device**; photos and camera images are never uploaded. Only the
+  barcode digits are sent to this app's API, which queries Open Food Facts.
+- The camera stops when the scanner closes or the tab is hidden.
+- The barcode engine ([`barcode-detector`](https://github.com/Sec-ant/barcode-detector), ZXing
+  WebAssembly, about 1 MB) is bundled with the app and loaded only when the scanner opens.
+- Lookups use a 5-second timeout and are cached for 24 hours, keeping well within the Open Food
+  Facts rate limit (15 product reads per minute). Outages are not cached, so they are retried.
+
+Product data comes from Open Food Facts and Open Products Facts under the
+[Open Database License](https://opendatacommons.org/licenses/odbl/1.0/); the form names the
+source. The data is crowd-sourced and may be incomplete. Open Food Facts asks API users to
+[describe their use](https://openfoodfacts.github.io/openfoodfacts-server/api/) once.
+
+`OPEN_FOOD_FACTS_URL` and `OPEN_PRODUCTS_FACTS_URL` override the lookup services. Production
+needs neither. Browser tests point them at a local stand-in (`tests/e2e/product-stub.mjs`).
 
 ## CI/CD and Free Deployment
 
@@ -230,6 +278,10 @@ npm run test:e2e
 Run this in a dedicated terminal and close it afterwards. Never supply your personal or hosted
 database URL. The reset command overrides `DIRECT_URL` with the explicit test URL to prevent a
 separate migration URL from targeting another database.
+
+The tests also start a local product-lookup stand-in on port 4010, so they never call Open Food
+Facts. Barcode tests replace the camera with a generated barcode image, so live scanning is
+covered without camera hardware; real phones still need a manual check after deploying.
 
 ## GitHub (Personal Repo)
 

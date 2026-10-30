@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   adjustStock,
@@ -6,12 +6,24 @@ import {
   deleteItem,
   listItems,
   login,
+  lookupBarcode,
   shoppingList,
   updateItem,
 } from './api'
 import './App.css'
-import type { ItemCategory, MedicineFor, ShoppingItem, StockItem, Unit, User } from './types'
+import type {
+  BarcodeLookup,
+  ItemCategory,
+  MedicineFor,
+  ShoppingItem,
+  StockItem,
+  Unit,
+  User,
+} from './types'
 import { getStockStatus, type StockStatus } from './utils/stock.js'
+
+// The barcode engine is about 1 MB, so it only loads when someone opens the scanner.
+const Scanner = lazy(() => import('./Scanner'))
 
 const categories: ItemCategory[] = ['GROCERY', 'MEDICINE', 'HOUSEHOLD', 'OTHER']
 // Units that make sense per category; the first one is the default when that category is chosen.
@@ -106,6 +118,7 @@ const iconPaths = {
   check: 'm5 12 4 4L19 6',
   arrow: 'M5 12h14m-5-5 5 5-5 5',
   alert: 'M12 8v5m0 3v.1M3 20h18L12 3 3 20Z',
+  scan: 'M4 7V5a1 1 0 0 1 1-1h2m10 0h2a1 1 0 0 1 1 1v2m0 10v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8m3-8v8m3-8v8m3-8v8',
 } as const
 type IconName = keyof typeof iconPaths
 const categoryIcons: Record<ItemCategory, IconName> = {
@@ -242,6 +255,7 @@ const emptyForm = {
   threshold: 0,
   notes: '',
   medicineFor: 'FAMILY' as MedicineFor,
+  barcode: null as string | null,
 }
 
 function App() {
@@ -265,6 +279,10 @@ function App() {
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [editingItem, setEditingItem] = useState<StockItem | null>(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanBusy, setScanBusy] = useState(false)
+  const [scanError, setScanError] = useState('')
+  const [scanInfo, setScanInfo] = useState<Pick<BarcodeLookup, 'source' | 'matches'> | null>(null)
   const createDialog = useRef<HTMLDialogElement>(null)
   const quickActionInput = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState(emptyForm)
@@ -397,17 +415,91 @@ function App() {
   }
 
   function showCreateDialog() {
-    if (editingItem) {
+    if (editingItem || form.barcode) {
       setEditingItem(null)
       setForm(emptyForm)
     }
+    setScanInfo(null)
     setCreateError('')
     createDialog.current?.showModal()
+  }
+
+  function openScanner() {
+    createDialog.current?.close()
+    setScanError('')
+    setScannerOpen(true)
+  }
+
+  // Opens the Bought box for an item, making sure its row is visible first.
+  function showBoughtFor(item: StockItem) {
+    setFilter('ALL')
+    setStockFilter('ALL')
+    setSearch(item.name)
+    if (window.location.hash !== '#inventory') window.location.hash = '#inventory'
+    openQuickAction(item, 'ADD')
+  }
+
+  async function handleDetected(code: string) {
+    if (!token) return
+    setScanBusy(true)
+    setScanError('')
+    try {
+      const result = await lookupBarcode(token, code)
+      setScannerOpen(false)
+
+      if (result.item) {
+        showBoughtFor(result.item)
+        setNotice({ kind: 'success', text: `Found ${result.item.name}. How much did you buy?` })
+        return
+      }
+
+      const category = result.product?.category ?? 'GROCERY'
+      setEditingItem(null)
+      setForm({
+        ...emptyForm,
+        name: result.product?.name ?? '',
+        category,
+        unit: result.product?.unit ?? categoryUnits[category][0],
+        quantity: result.product?.quantity ?? 0,
+        notes: result.product?.brand ? `Brand: ${result.product.brand}` : '',
+        barcode: result.barcode,
+      })
+      setScanInfo({ source: result.source, matches: result.matches })
+      setCreateError('')
+      createDialog.current?.showModal()
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Could not look up this barcode.')
+    } finally {
+      setScanBusy(false)
+    }
+  }
+
+  async function linkBarcodeTo(item: StockItem) {
+    if (!token || !form.barcode || isCreating) return
+    setIsCreating(true)
+    setCreateError('')
+    try {
+      const updated = await updateItem(token, item.id, { barcode: form.barcode })
+      createDialog.current?.close()
+      setForm(emptyForm)
+      setScanInfo(null)
+      await loadData(token)
+      showBoughtFor(updated)
+      setNotice({
+        kind: 'success',
+        text: `Barcode linked to ${updated.name}. Next time it scans instantly.`,
+      })
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Could not link the barcode.')
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   function showEditDialog(item: StockItem) {
     closeQuickAction()
     setEditingItem(item)
+    setScanInfo(null)
     setForm({
       name: item.name,
       category: item.category,
@@ -416,6 +508,7 @@ function App() {
       threshold: item.threshold,
       notes: item.notes ?? '',
       medicineFor: item.medicineFor ?? 'FAMILY',
+      barcode: item.barcode ?? null,
     })
     setCreateError('')
     createDialog.current?.showModal()
@@ -448,6 +541,7 @@ function App() {
           threshold: form.threshold,
           notes: form.notes,
           medicineFor,
+          barcode: form.barcode,
         })
         setNotice({ kind: 'success', text: `Saved changes to ${form.name}.` })
       } else {
@@ -463,6 +557,7 @@ function App() {
 
       setEditingItem(null)
       setForm(emptyForm)
+      setScanInfo(null)
       await loadData(token)
       createDialog.current?.close()
     } catch (err) {
@@ -717,10 +812,16 @@ function App() {
                 shopping list.
               </p>
             </div>
-            <button className="primary-button" type="button" onClick={showCreateDialog}>
-              <Icon name="plus" />
-              Add item
-            </button>
+            <div className="heading-actions">
+              <button className="secondary-button scan-button" type="button" onClick={openScanner}>
+                <Icon name="scan" />
+                Scan
+              </button>
+              <button className="primary-button" type="button" onClick={showCreateDialog}>
+                <Icon name="plus" />
+                Add item
+              </button>
+            </div>
           </section>
 
           <section className="summary-grid" aria-label="Inventory overview">
@@ -1167,6 +1268,20 @@ function App() {
         </div>
       </main>
 
+      {scannerOpen ? (
+        <Suspense fallback={null}>
+          <Scanner
+            busy={scanBusy}
+            error={scanError}
+            onDetected={(code) => void handleDetected(code)}
+            onClose={() => {
+              setScannerOpen(false)
+              setScanError('')
+            }}
+          />
+        </Suspense>
+      ) : null}
+
       {notice ? (
         <div
           className={`toast toast-${notice.kind}`}
@@ -1211,6 +1326,79 @@ function App() {
           </button>
         </div>
         <form onSubmit={submitCreate} className="item-form">
+          {editingItem || form.barcode ? null : (
+            <button className="scan-inline" type="button" onClick={openScanner}>
+              <Icon name="scan" />
+              Have a barcode? Scan it to fill this in
+            </button>
+          )}
+          {scanInfo ? (
+            <div
+              className={`scan-result ${scanInfo.source === 'none' || scanInfo.source === 'unavailable' ? 'scan-unknown' : 'scan-found'}`}
+              role="status"
+            >
+              {scanInfo.source === 'unavailable' ? (
+                <p>
+                  Product lookup is unavailable right now, so details couldn&apos;t be filled in.
+                  Fill them in yourself, or close this and scan again later.
+                </p>
+              ) : scanInfo.source === 'none' ? (
+                <p>
+                  We don&apos;t know this product yet. Fill it in once and it will be recognised
+                  next time you scan it.
+                </p>
+              ) : (
+                <p>
+                  Filled in from{' '}
+                  <a
+                    href={
+                      scanInfo.source === 'openproductsfacts'
+                        ? 'https://world.openproductsfacts.org'
+                        : 'https://world.openfoodfacts.org'
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {scanInfo.source === 'openproductsfacts'
+                      ? 'Open Products Facts'
+                      : 'Open Food Facts'}
+                  </a>
+                  . Check the details before saving.
+                </p>
+              )}
+              {scanInfo.matches.length > 0 ? (
+                <div className="scan-matches">
+                  <span>Already have it?</span>
+                  {scanInfo.matches.map((match) => (
+                    <button
+                      key={match.id}
+                      type="button"
+                      className="secondary-button"
+                      disabled={isCreating}
+                      onClick={() => void linkBarcodeTo(match)}
+                    >
+                      This is my {match.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {form.barcode ? (
+            <p className="barcode-line">
+              <Icon name="scan" />
+              <span>
+                Barcode <strong>{form.barcode}</strong>
+              </span>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setForm((prev) => ({ ...prev, barcode: null }))}
+              >
+                Remove
+              </button>
+            </p>
+          ) : null}
           <label>
             Name
             <input

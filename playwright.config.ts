@@ -7,6 +7,8 @@ export default defineConfig({
     timeout: 10_000,
   },
   fullyParallel: false,
+  // Tests share one database, so files must not run at the same time.
+  workers: 1,
   retries: 0,
   globalSetup: './playwright.global-setup.ts',
   use: {
@@ -16,10 +18,21 @@ export default defineConfig({
   },
   webServer: [
     {
+      command: 'node tests/e2e/product-stub.mjs',
+      url: 'http://localhost:4010/off/api/v2/product/3017624010701.json',
+      timeout: 30_000,
+      reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVERS === 'true',
+    },
+    {
       command: 'npm run dev:server',
       url: 'http://localhost:4000/health',
       timeout: 120_000,
       reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVERS === 'true',
+      env: {
+        ...process.env,
+        OPEN_FOOD_FACTS_URL: 'http://localhost:4010/off',
+        OPEN_PRODUCTS_FACTS_URL: 'http://localhost:4010/opf',
+      } as Record<string, string>,
     },
     {
       command: 'npm run dev -w packages/client -- --host=localhost --port=5173',

@@ -58,6 +58,7 @@ model StockItem {
   threshold   Float
   notes       String?
   medicineFor MedicineFor?
+  barcode     String?      @unique
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   stockEvents StockEvent[]

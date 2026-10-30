@@ -1,4 +1,4 @@
-import type { ShoppingItem, StockItem, User } from './types'
+import type { BarcodeLookup, ShoppingItem, StockItem, User } from './types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
 
@@ -43,32 +43,52 @@ export async function listItems(token: string) {
 }
 
 export async function createItem(token: string, data: Partial<StockItem>) {
-  return request<StockItem>('/items', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }, token)
+  return request<StockItem>(
+    '/items',
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+    token,
+  )
 }
 
 export async function updateItem(token: string, id: string, data: Partial<StockItem>) {
-  return request<StockItem>(`/items/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  }, token)
+  return request<StockItem>(
+    `/items/${id}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    },
+    token,
+  )
 }
 
 export async function adjustStock(token: string, id: string, delta: number, reason?: string) {
-  return request<StockItem>(`/items/${id}/stock`, {
-    method: 'PATCH',
-    body: JSON.stringify({ delta, reason }),
-  }, token)
+  return request<StockItem>(
+    `/items/${id}/stock`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ delta, reason }),
+    },
+    token,
+  )
 }
 
 export async function deleteItem(token: string, id: string) {
-  return request<void>(`/items/${id}`, {
-    method: 'DELETE',
-  }, token)
+  return request<void>(
+    `/items/${id}`,
+    {
+      method: 'DELETE',
+    },
+    token,
+  )
 }
 
 export async function shoppingList(token: string) {
   return request<ShoppingItem[]>('/shopping-list', {}, token)
+}
+
+export async function lookupBarcode(token: string, code: string) {
+  return request<BarcodeLookup>(`/barcodes/${encodeURIComponent(code)}`, {}, token)
 }

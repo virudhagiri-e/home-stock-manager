@@ -40,6 +40,7 @@
   "description": "Family home stock manager for groceries, medicines, and household items.",
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "bwip-js": "^4.11.4",
     "concurrently": "^9.2.1",
     "prettier": "^3.6.2"
   },

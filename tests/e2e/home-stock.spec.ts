@@ -1,29 +1,6 @@
 import { expect, test } from '@playwright/test'
-import type { Locator, Page } from '@playwright/test'
-
-async function signIn(page: Page, role: 'admin' | 'family' = 'admin') {
-  await page.goto('/')
-  await page.getByLabel('Email', { exact: true }).fill(`${role}@homestock.local`)
-  await page
-    .getByLabel('Password', { exact: true })
-    .fill(role === 'admin' ? 'Admin@1234' : 'Family@1234')
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Your inventory' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Your inventory' })).toHaveAttribute(
-    'aria-busy',
-    'false',
-  )
-}
-
-const rows = (page: Page) => page.locator('tbody tr.stock-row')
-const rowFor = (page: Page, name: string) => page.locator('tbody tr.stock-row', { hasText: name })
-const shoppingEntry = (page: Page, name: string) =>
-  page.locator('.shopping-items li', { hasText: name })
-
-const choice = (scope: Locator, group: string, option: string) =>
-  scope
-    .getByRole('group', { name: group, exact: true })
-    .getByRole('radio', { name: option, exact: true })
+import type { Page } from '@playwright/test'
+import { choice, rowFor, rows, shoppingEntry, signIn } from './helpers'
 
 async function saveQuickAction(page: Page, value: string) {
   const input = page.locator('.quick-action input')

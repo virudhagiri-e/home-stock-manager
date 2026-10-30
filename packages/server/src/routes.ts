@@ -23,6 +23,7 @@ export function registerRoutes(app: Express) {
   router.delete('/items/:id', authenticate, inventoryController.remove)
 
   router.get('/shopping-list', authenticate, inventoryController.shoppingList)
+  router.get('/barcodes/:code', authenticate, inventoryController.lookupBarcode)
   router.get('/medicines/grouped', authenticate, inventoryController.groupedMedicines)
 
   app.use(router)

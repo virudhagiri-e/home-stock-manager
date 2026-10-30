@@ -11,6 +11,8 @@ const envSchema = z
     JWT_SECRET: z.string().min(8),
     PORT: z.coerce.number().default(4000),
     CORS_ORIGIN: z.url(),
+    OPEN_FOOD_FACTS_URL: z.url().default('https://world.openfoodfacts.org'),
+    OPEN_PRODUCTS_FACTS_URL: z.url().default('https://world.openproductsfacts.org'),
   })
   .superRefine((config, ctx) => {
     // Neon's WebSocket proxy only exists on Neon endpoints, not local Docker Postgres.
@@ -53,4 +55,6 @@ export const env = envSchema.parse({
     process.env.JWT_SECRET ?? (isProduction ? undefined : 'local-development-only-secret'),
   PORT: process.env.PORT,
   CORS_ORIGIN: process.env.CORS_ORIGIN ?? (isProduction ? undefined : 'http://localhost:5173'),
+  OPEN_FOOD_FACTS_URL: process.env.OPEN_FOOD_FACTS_URL || undefined,
+  OPEN_PRODUCTS_FACTS_URL: process.env.OPEN_PRODUCTS_FACTS_URL || undefined,
 })

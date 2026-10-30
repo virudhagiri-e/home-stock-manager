@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildShoppingList,
+  findSimilarItems,
   groupMedicinesByOwner,
   isLowStock,
   isOutOfStock,
@@ -8,6 +9,23 @@ import {
 } from './inventory.logic.js'
 
 describe('inventory.logic', () => {
+  it('suggests existing items that share meaningful name words', () => {
+    const items = [
+      { name: 'Jeera' },
+      { name: 'Coconut oil' },
+      { name: 'Gingelly oil' },
+      { name: 'Tamarind' },
+    ]
+    expect(findSimilarItems('Organic Jeera Seeds 200g', items).map((item) => item.name)).toEqual([
+      'Jeera',
+    ])
+    expect(findSimilarItems('Coconut oil virgin', items).map((item) => item.name)).toEqual([
+      'Coconut oil',
+      'Gingelly oil',
+    ])
+    expect(findSimilarItems('Nutella', items)).toEqual([])
+  })
+
   it('detects low stock based on threshold', () => {
     expect(isLowStock({ quantity: 2, threshold: 3 })).toBe(true)
     expect(isLowStock({ quantity: 3, threshold: 3 })).toBe(false)

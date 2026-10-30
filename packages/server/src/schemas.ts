@@ -1,4 +1,20 @@
 import { z } from 'zod'
+import { normalizeBarcode } from './services/barcode.js'
+
+export const invalidBarcodeMessage =
+  'That is not a valid barcode number. Check the digits printed under the barcode.'
+
+export const barcodeSchema = z
+  .string()
+  .trim()
+  .transform((value, ctx) => {
+    const code = normalizeBarcode(value)
+    if (!code) {
+      ctx.addIssue({ code: 'custom', message: invalidBarcodeMessage })
+      return z.NEVER
+    }
+    return code
+  })
 
 export const registerSchema = z.object({
   name: z.string().min(2),
@@ -30,6 +46,7 @@ export const itemSchema = z.object({
   threshold: z.number().nonnegative(),
   notes: z.string().max(500).optional(),
   medicineFor: z.enum(['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']).optional(),
+  barcode: barcodeSchema.nullable().optional(),
 })
 
 export const stockAdjustSchema = z.object({

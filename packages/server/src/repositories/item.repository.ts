@@ -9,9 +9,18 @@ type CreateItemInput = {
   threshold: number
   notes?: string
   medicineFor?: MedicineFor
+  barcode?: string | null
 }
 
 export const itemRepository = {
+  findByBarcode(barcode: string) {
+    return prisma.stockItem.findUnique({ where: { barcode } })
+  },
+
+  listWithoutBarcode() {
+    return prisma.stockItem.findMany({ where: { barcode: null }, orderBy: { name: 'asc' } })
+  },
+
   list(category?: ItemCategory) {
     return prisma.stockItem.findMany({
       where: { category },
