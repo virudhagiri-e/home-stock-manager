@@ -3,15 +3,7 @@ export type UserRole = 'ADMIN' | 'FAMILY'
 export type ItemCategory = 'GROCERY' | 'MEDICINE' | 'HOUSEHOLD' | 'OTHER'
 
 export type Unit =
-  | 'COUNT'
-  | 'GRAM'
-  | 'KILOGRAM'
-  | 'MILLILITER'
-  | 'LITER'
-  | 'TABLET'
-  | 'STRIP'
-  | 'BOTTLE'
-  | 'PACKET'
+  'COUNT' | 'GRAM' | 'KILOGRAM' | 'MILLILITER' | 'LITER' | 'TABLET' | 'STRIP' | 'BOTTLE' | 'PACKET'
 
 export type MedicineFor = 'ME' | 'WIFE' | 'BOTH' | 'CHILD' | 'FAMILY'
 
@@ -43,5 +35,6 @@ export type ShoppingItem = {
   quantity: number
   threshold: number
   missingBy: number
+  outOfStock: boolean
   medicineFor?: MedicineFor | null
 }

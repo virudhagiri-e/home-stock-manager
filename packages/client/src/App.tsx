@@ -11,28 +11,36 @@ import {
 } from './api'
 import './App.css'
 import type { ItemCategory, MedicineFor, ShoppingItem, StockItem, Unit, User } from './types'
-import { formatNeedText, isBelowThreshold } from './utils/stock.js'
+import { getStockStatus, type StockStatus } from './utils/stock.js'
 
 const categories: ItemCategory[] = ['GROCERY', 'MEDICINE', 'HOUSEHOLD', 'OTHER']
 const units: Unit[] = [
-  'COUNT',
-  'GRAM',
   'KILOGRAM',
-  'MILLILITER',
+  'GRAM',
   'LITER',
+  'MILLILITER',
+  'COUNT',
+  'PACKET',
+  'BOTTLE',
   'TABLET',
   'STRIP',
-  'BOTTLE',
-  'PACKET',
 ]
 const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']
 type QuickActionMode = 'REDUCE' | 'ADD' | 'THRESHOLD'
+type StockFilter = 'ALL' | 'LOW' | 'OUT'
+type Notice = { kind: 'success' | 'error'; text: string } | null
 
 const categoryLabels: Record<ItemCategory, string> = {
   GROCERY: 'Groceries',
   MEDICINE: 'Medicines',
   HOUSEHOLD: 'Household',
   OTHER: 'Other',
+}
+const categoryHints: Record<ItemCategory, string> = {
+  GROCERY: 'Pantry and kitchen',
+  MEDICINE: 'Family medicines',
+  HOUSEHOLD: 'Home supplies',
+  OTHER: 'Everything else',
 }
 const unitLabels: Record<Unit, string> = {
   COUNT: 'pcs',
@@ -45,12 +53,28 @@ const unitLabels: Record<Unit, string> = {
   BOTTLE: 'bottles',
   PACKET: 'packets',
 }
+const unitNames: Record<Unit, string> = {
+  KILOGRAM: 'Kilograms (kg)',
+  GRAM: 'Grams (g)',
+  LITER: 'Litres (l)',
+  MILLILITER: 'Millilitres (ml)',
+  COUNT: 'Pieces (pcs)',
+  PACKET: 'Packets',
+  BOTTLE: 'Bottles',
+  TABLET: 'Tablets',
+  STRIP: 'Strips',
+}
 const personLabels: Record<MedicineFor, string> = {
   ME: 'Me',
   WIFE: 'Wife',
   BOTH: 'Both of us',
   CHILD: 'Child',
   FAMILY: 'Family',
+}
+const statusLabels: Record<StockStatus, string> = {
+  OUT: 'Out of stock',
+  LOW: 'Running low',
+  OK: 'In stock',
 }
 const iconPaths = {
   home: 'm3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10Zm6 11v-8h6v8',
@@ -88,7 +112,7 @@ function Icon({ name, className = '' }: { name: IconName; className?: string }) 
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.7"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -106,7 +130,7 @@ function Brand() {
         <Icon name="home" />
       </span>
       <span>
-        Home Stock<span className="brand-caption">A well-kept home.</span>
+        Home Stock<span className="brand-caption">Your family&apos;s shared stock</span>
       </span>
     </div>
   )
@@ -115,60 +139,54 @@ function Brand() {
 function PantryIllustration() {
   return (
     <svg className="pantry-illustration" viewBox="0 0 440 280" fill="none" aria-hidden="true">
-      <rect x="36" y="34" width="368" height="226" rx="100" fill="#E8E3F5" />
-      <path d="M56 157h328M56 249h328" stroke="#8475B3" strokeWidth="6" strokeLinecap="round" />
-      <rect
-        x="77"
-        y="76"
-        width="57"
-        height="78"
-        rx="12"
-        fill="#FDFBF7"
-        stroke="#B5A8D3"
-        strokeWidth="2"
-      />
-      <rect x="80" y="68" width="51" height="13" rx="4" fill="#A99BC6" />
-      <path d="M85 130c12-12 29 10 41-4v18H85v-14Z" fill="#DFB46F" />
-      <path d="M85 113c12-12 29 10 41-4v19c-12 14-29-8-41 4v-19Z" fill="#EACB96" />
-      <rect x="91" y="92" width="29" height="17" rx="4" fill="#F0EBE0" />
-      <rect x="151" y="93" width="76" height="61" rx="10" fill="#C5D6C6" />
-      <path d="M160 92v-9h58v9" fill="#64866D" />
-      <rect x="173" y="108" width="32" height="29" rx="6" fill="#F7FAF4" />
-      <path d="M181 123h16m-8-8v16" stroke="#64866D" strokeWidth="3" strokeLinecap="round" />
+      <rect x="36" y="34" width="368" height="226" rx="100" fill="#FFFFFF" fillOpacity="0.55" />
+      <path d="M56 157h328M56 249h328" stroke="#3B5BDB" strokeWidth="6" strokeLinecap="round" />
+      <rect x="77" y="76" width="57" height="78" rx="12" fill="#FFFFFF" />
+      <rect x="80" y="68" width="51" height="13" rx="4" fill="#D6336C" />
+      <path d="M85 113c12-12 29 10 41-4v35H85v-31Z" fill="#FFB020" />
+      <rect x="151" y="93" width="76" height="61" rx="10" fill="#2B9348" />
+      <path d="M160 92v-9h58v9" fill="#1F6E35" />
+      <rect x="173" y="108" width="32" height="29" rx="6" fill="#FFFFFF" />
+      <path d="M181 123h16m-8-8v16" stroke="#2B9348" strokeWidth="3" strokeLinecap="round" />
       <path
         d="M264 154V92c-18-15-16-32-7-43 15 10 21 24 7 43Zm0-42c5-25 19-30 34-28-1 19-12 30-34 28Zm0-18c-24-2-32-14-31-30 18-1 30 10 31 30Z"
-        fill="#71977B"
+        fill="#2B9348"
       />
-      <path d="M243 123h44l-5 31h-34l-5-31Z" fill="#D6B895" />
-      <rect x="314" y="97" width="44" height="57" rx="8" fill="#E1B9A5" />
-      <rect x="318" y="90" width="36" height="10" rx="3" fill="#BA8F7A" />
-      <path d="M325 119h22m-22 8h15" stroke="#FDF7F0" strokeWidth="3" strokeLinecap="round" />
-      <path d="M80 185h91v61H80z" fill="#D2C7E4" />
-      <path d="M76 177h99v14H76z" fill="#B4A3CF" />
-      <rect x="108" y="203" width="35" height="18" rx="5" fill="#F6F2FA" />
-      <rect
-        x="193"
-        y="183"
-        width="48"
-        height="63"
-        rx="10"
-        fill="#F8F5ED"
-        stroke="#C9BFAB"
-        strokeWidth="2"
-      />
-      <rect x="197" y="175" width="40" height="12" rx="4" fill="#7B8D7E" />
-      <path d="M201 224h32v14h-32z" fill="#C3D0B7" />
-      <rect x="267" y="190" width="84" height="56" rx="11" fill="#EDD7A2" />
-      <path d="M267 205h84m-57-15v56m29-56v56" stroke="#D3B776" strokeWidth="2" />
-      <path d="m348 49 4 8 9 1-6 6 1 9-8-4-8 4 1-9-6-6 9-1 4-8Z" fill="#B4A3CF" />
+      <path d="M243 123h44l-5 31h-34l-5-31Z" fill="#F08C00" />
+      <rect x="314" y="97" width="44" height="57" rx="8" fill="#0C8599" />
+      <rect x="318" y="90" width="36" height="10" rx="3" fill="#086170" />
+      <path d="M325 119h22m-22 8h15" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
+      <path d="M80 185h91v61H80z" fill="#748FFC" />
+      <path d="M76 177h99v14H76z" fill="#3B5BDB" />
+      <rect x="108" y="203" width="35" height="18" rx="5" fill="#FFFFFF" />
+      <rect x="193" y="183" width="48" height="63" rx="10" fill="#FFFFFF" />
+      <rect x="197" y="175" width="40" height="12" rx="4" fill="#D6336C" />
+      <path d="M201 224h32v14h-32z" fill="#FFD8E6" />
+      <rect x="267" y="190" width="84" height="56" rx="11" fill="#FFB020" />
+      <path d="M267 205h84m-57-15v56m29-56v56" stroke="#F08C00" strokeWidth="2" />
+      <path d="m348 49 4 8 9 1-6 6 1 9-8-4-8 4 1-9-6-6 9-1 4-8Z" fill="#FFB020" />
     </svg>
   )
+}
+
+function formatAmount(value: number, unit: Unit) {
+  const label = unitLabels[unit]
+  return `${value} ${value === 1 && label.endsWith('s') && label !== 'pcs' ? label.slice(0, -1) : label}`
+}
+
+const sections = ['inventory', 'shopping', 'medicines'] as const
+type Section = (typeof sections)[number]
+
+// Phones show one section at a time, so unknown hashes must fall back to a real section.
+function sectionFromHash(): Section {
+  const hash = window.location.hash.slice(1)
+  return (sections as readonly string[]).includes(hash) ? (hash as Section) : 'inventory'
 }
 
 const emptyForm = {
   name: '',
   category: 'GROCERY' as ItemCategory,
-  unit: 'GRAM' as Unit,
+  unit: 'KILOGRAM' as Unit,
   quantity: 0,
   threshold: 0,
   notes: '',
@@ -185,12 +203,12 @@ function App() {
   const [password, setPassword] = useState('Admin@1234')
   const [items, setItems] = useState<StockItem[]>([])
   const [shop, setShop] = useState<ShoppingItem[]>([])
-  const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [notice, setNotice] = useState<Notice>(null)
   const [filter, setFilter] = useState<ItemCategory | 'ALL'>('ALL')
+  const [stockFilter, setStockFilter] = useState<StockFilter>('ALL')
   const [search, setSearch] = useState('')
-  const [onlyLowStock, setOnlyLowStock] = useState(false)
-  const [activeSection, setActiveSection] = useState(window.location.hash.slice(1) || 'inventory')
+  const [activeSection, setActiveSection] = useState(sectionFromHash)
   const [isLoading, setIsLoading] = useState(Boolean(token))
   const [isSigningIn, setIsSigningIn] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -202,10 +220,10 @@ function App() {
   const [quickActionMode, setQuickActionMode] = useState<QuickActionMode | null>(null)
   const [quickActionValue, setQuickActionValue] = useState('1')
   const [isQuickActionSaving, setIsQuickActionSaving] = useState(false)
-  const [quickActionFeedback, setQuickActionFeedback] = useState('')
+  const [quickActionError, setQuickActionError] = useState('')
 
   useEffect(() => {
-    const updateSection = () => setActiveSection(window.location.hash.slice(1) || 'inventory')
+    const updateSection = () => setActiveSection(sectionFromHash())
     window.addEventListener('hashchange', updateSection)
     return () => window.removeEventListener('hashchange', updateSection)
   }, [])
@@ -214,6 +232,12 @@ function App() {
     quickActionInput.current?.focus()
     quickActionInput.current?.select()
   }, [quickActionItem?.id, quickActionMode])
+
+  useEffect(() => {
+    if (notice?.kind !== 'success') return
+    const timer = window.setTimeout(() => setNotice(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
   async function loadData(currentToken: string) {
     const [allItems, shopping] = await Promise.all([
@@ -230,8 +254,8 @@ function App() {
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
-    setError('')
-    setMessage('')
+    setLoginError('')
+    setNotice(null)
     setIsSigningIn(true)
 
     try {
@@ -241,9 +265,8 @@ function App() {
       setToken(res.token)
       setUser(res.user)
       await loadData(res.token)
-      setMessage('Login successful')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      setLoginError(err instanceof Error ? err.message : 'Login failed')
     } finally {
       setIsSigningIn(false)
     }
@@ -256,6 +279,7 @@ function App() {
     setUser(null)
     setItems([])
     setShop([])
+    setNotice(null)
   }
 
   useEffect(() => {
@@ -267,7 +291,7 @@ function App() {
     loadData(token)
       .catch((err: unknown) => {
         logout()
-        setError(
+        setLoginError(
           err instanceof Error
             ? err.message
             : 'Unable to load your inventory. Please sign in again.',
@@ -276,26 +300,24 @@ function App() {
       .finally(() => setIsLoading(false))
   }, [token])
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<StockStatus, number> = { OUT: 0, LOW: 0, OK: 0 }
+    for (const item of items) counts[getStockStatus(item.quantity, item.threshold)] += 1
+    return counts
+  }, [items])
+
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
     return items.filter(
       (item) =>
         (filter === 'ALL' || item.category === filter) &&
-        (!onlyLowStock || isBelowThreshold(item.quantity, item.threshold)) &&
+        (stockFilter === 'ALL' || getStockStatus(item.quantity, item.threshold) === stockFilter) &&
         `${item.name} ${item.notes ?? ''}`.toLowerCase().includes(query),
     )
-  }, [items, filter, search, onlyLowStock])
+  }, [items, filter, search, stockFilter])
 
-  const lowStockCount = items.filter((item) =>
-    isBelowThreshold(item.quantity, item.threshold),
-  ).length
   const categoryCount = (category: ItemCategory) =>
     items.filter((item) => item.category === category).length
-
-  function showCreateDialog() {
-    setCreateError('')
-    createDialog.current?.showModal()
-  }
 
   const medicineBuckets = useMemo(() => {
     return medicineGroups.map((group) => ({
@@ -304,12 +326,29 @@ function App() {
     }))
   }, [items])
 
+  const outOfStockShop = shop.filter((item) => item.outOfStock)
+  const runningLowShop = shop.filter((item) => !item.outOfStock)
+
+  function showItems(category: ItemCategory | 'ALL') {
+    setFilter(category)
+    setStockFilter('ALL')
+    setSearch('')
+  }
+
+  function resetFilters() {
+    showItems('ALL')
+  }
+
+  function showCreateDialog() {
+    setCreateError('')
+    createDialog.current?.showModal()
+  }
+
   async function submitCreate(e: FormEvent) {
     e.preventDefault()
     if (!token || isCreating) return
 
-    setError('')
-    setMessage('')
+    setNotice(null)
     setCreateError('')
     setIsCreating(true)
 
@@ -322,7 +361,13 @@ function App() {
       await createItem(token, payload)
       setForm(emptyForm)
       await loadData(token)
-      setMessage('Item added')
+      setNotice({
+        kind: 'success',
+        text:
+          payload.quantity <= 0
+            ? `${payload.name} added. It's out of stock, so it's on your shopping list.`
+            : `${payload.name} added.`,
+      })
       createDialog.current?.close()
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Unable to add item. Please try again.')
@@ -332,9 +377,8 @@ function App() {
   }
 
   function openQuickAction(item: StockItem, mode: QuickActionMode) {
-    setError('')
-    setMessage('')
-    setQuickActionFeedback('')
+    setNotice(null)
+    setQuickActionError('')
     setQuickActionItem(item)
     setQuickActionMode(mode)
     setQuickActionValue(mode === 'THRESHOLD' ? String(item.threshold) : '1')
@@ -344,69 +388,59 @@ function App() {
     setQuickActionItem(null)
     setQuickActionMode(null)
     setQuickActionValue('1')
-    setQuickActionFeedback('')
+    setQuickActionError('')
     setIsQuickActionSaving(false)
   }
 
   async function applyQuickAction() {
     if (!token || !quickActionItem || !quickActionMode || isQuickActionSaving) return
 
+    const item = quickActionItem
     const value = parseNumericInput(quickActionValue)
-    const requiresPositiveValue = quickActionMode === 'ADD' || quickActionMode === 'REDUCE'
-    if (
-      Number.isNaN(value) ||
-      (requiresPositiveValue && value <= 0) ||
-      (!requiresPositiveValue && value < 0)
-    ) {
-      setError(
+    if (Number.isNaN(value) || value < 0 || (quickActionMode !== 'THRESHOLD' && value === 0)) {
+      setQuickActionError(
         quickActionMode === 'THRESHOLD'
-          ? 'Please enter a valid threshold value'
-          : 'Please enter a valid positive value',
+          ? 'Enter a minimum of 0 or more.'
+          : 'Enter an amount greater than 0.',
+      )
+      return
+    }
+    if (quickActionMode === 'REDUCE' && value > item.quantity) {
+      setQuickActionError(
+        `You only have ${formatAmount(item.quantity, item.unit)}. Enter ${item.quantity} or less.`,
       )
       return
     }
 
-    setError('')
-    setMessage('')
-    setQuickActionFeedback('Applying update...')
+    setQuickActionError('')
     setIsQuickActionSaving(true)
 
     try {
       let updatedItem: StockItem
       if (quickActionMode === 'THRESHOLD') {
-        updatedItem = await updateItem(token, quickActionItem.id, { threshold: value })
+        updatedItem = await updateItem(token, item.id, { threshold: value })
       } else {
         const delta = quickActionMode === 'REDUCE' ? -value : value
         updatedItem = await adjustStock(
           token,
-          quickActionItem.id,
+          item.id,
           delta,
-          quickActionMode === 'REDUCE' ? 'Manual reduce' : 'Manual add',
+          quickActionMode === 'REDUCE' ? 'Used' : 'Bought',
         )
       }
 
-      setItems((prev) => prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)))
-
-      setQuickActionItem(updatedItem)
-      setQuickActionFeedback('Updated. Refreshing latest values...')
-
-      // Keep main inventory snappy; refresh shopping list separately.
-      try {
-        const updatedShopping = await shoppingList(token)
-        setShop(updatedShopping)
-      } catch {
-        setMessage('Item updated. Shopping list will refresh on next reload.')
-      }
-
+      setItems((prev) => prev.map((entry) => (entry.id === updatedItem.id ? updatedItem : entry)))
       await loadData(token)
-
-      setMessage('Item updated')
-      setQuickActionFeedback('Update applied successfully.')
-      setQuickActionValue(quickActionMode === 'THRESHOLD' ? String(updatedItem.threshold) : '1')
-      setIsQuickActionSaving(false)
+      closeQuickAction()
+      setNotice({
+        kind: 'success',
+        text:
+          quickActionMode === 'THRESHOLD'
+            ? `Minimum for ${updatedItem.name} is now ${formatAmount(updatedItem.threshold, updatedItem.unit)}.`
+            : `${updatedItem.name}: you now have ${formatAmount(updatedItem.quantity, updatedItem.unit)}.`,
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to update item')
-      setQuickActionFeedback('Update failed. Check the error message above.')
+      setQuickActionError(err instanceof Error ? err.message : 'Unable to save. Please try again.')
       setIsQuickActionSaving(false)
     }
   }
@@ -419,9 +453,14 @@ function App() {
 
     try {
       await deleteItem(token, item.id)
+      if (quickActionItem?.id === item.id) closeQuickAction()
       await loadData(token)
+      setNotice({ kind: 'success', text: `${item.name} deleted.` })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete item')
+      setNotice({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'Unable to delete item',
+      })
     }
   }
 
@@ -433,33 +472,31 @@ function App() {
           <div className="auth-story-content">
             <PantryIllustration />
             <h1>
-              A little order.
-              <br />A calmer home.
+              Know what&apos;s at home.
+              <br />
+              Buy only what&apos;s missing.
             </h1>
             <p>
-              From the pantry to the medicine cabinet, keep the everyday essentials in good supply.
+              Groceries, medicines and household supplies in one shared list, with a shopping list
+              that fills itself.
             </p>
             <div className="auth-features">
-              <span>
-                <Icon name="grocery" /> Pantry staples
+              <span className="tone-grocery">
+                <Icon name="grocery" /> Groceries
               </span>
-              <span>
-                <Icon name="medicine" /> Family medicines
+              <span className="tone-medicine">
+                <Icon name="medicine" /> Medicines
               </span>
-              <span>
-                <Icon name="household" /> Home essentials
+              <span className="tone-household">
+                <Icon name="household" /> Household
               </span>
             </div>
           </div>
-          <p className="auth-story-footer">Less keeping track. More getting on with life.</p>
         </section>
         <section className="auth-form-panel">
           <div className="auth-card">
-            <span className="welcome-icon">
-              <Icon name="home" />
-            </span>
             <h2>Welcome home.</h2>
-            <p>Sign in to your family&apos;s shared stock space.</p>
+            <p>Sign in to your family&apos;s shared stock.</p>
             <form onSubmit={handleLogin} className="auth-form">
               <label>
                 Email
@@ -481,9 +518,9 @@ function App() {
                   required
                 />
               </label>
-              {error ? (
+              {loginError ? (
                 <p className="notice error" role="alert">
-                  {error}
+                  {loginError}
                 </p>
               ) : null}
               <button
@@ -501,14 +538,22 @@ function App() {
               <p>Family: family@homestock.local / Family@1234</p>
               <small>Demo accounts require the local seed data.</small>
             </details>
-            <p className="auth-footnote">
-              <Icon name="inventory" /> One home. One shared inventory.
-            </p>
           </div>
         </section>
       </main>
     )
   }
+
+  const summaryCards: { key: ItemCategory | 'ALL'; label: string; hint: string; count: number }[] =
+    [
+      { key: 'ALL', label: 'All essentials', hint: 'Everything at home', count: items.length },
+      ...(['GROCERY', 'MEDICINE', 'HOUSEHOLD'] as const).map((category) => ({
+        key: category,
+        label: categoryLabels[category],
+        hint: categoryHints[category],
+        count: categoryCount(category),
+      })),
+    ]
 
   return (
     <div className="app-shell">
@@ -517,9 +562,6 @@ function App() {
       </a>
       <aside className="sidebar">
         <Brand />
-        <div className="workspace-label">
-          <span className="workspace-dot" /> Your household
-        </div>
         <nav className="main-nav" aria-label="Main navigation">
           <a
             className="nav-link"
@@ -537,7 +579,7 @@ function App() {
             <Icon name="basket" />
             Shopping list
             {shop.length > 0 ? (
-              <span className="nav-count warning-count">{shop.length}</span>
+              <span className="nav-count nav-count-alert">{shop.length}</span>
             ) : null}
           </a>
           <a
@@ -549,17 +591,6 @@ function App() {
             Medicines
           </a>
         </nav>
-        <div className="sidebar-note">
-          <span className="sidebar-note-icon">
-            <Icon name="home" />
-          </span>
-          <strong>A home effort.</strong>
-          <p>
-            Everyone&apos;s essentials.
-            <br />
-            All in one place.
-          </p>
-        </div>
         <div className="sidebar-user">
           <span className="avatar">{user?.name.charAt(0).toUpperCase() ?? 'H'}</span>
           <div>
@@ -579,22 +610,16 @@ function App() {
       </aside>
 
       <main className="workspace">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <Icon name="home" />
-            <span>Your household</span>
-            <span className="breadcrumb-divider">/</span>
-            <strong>Overview</strong>
-          </div>
-          <span className="shared-label">
-            <span className="workspace-dot" /> Shared with your family
-          </span>
-        </header>
-        <div className="page-content">
+        <div className="page-content" data-view={activeSection}>
           <section className="page-heading" aria-labelledby="page-title">
             <div>
-              <h1 id="page-title">A well-stocked home starts here.</h1>
-              <p>A little less to remember. Everything you need, in one place.</p>
+              <h1 id="page-title">
+                Hi {user?.name.split(' ')[0] ?? 'there'}, here&apos;s your home stock
+              </h1>
+              <p>
+                Tap a number to see those items. Anything at 0 or under its minimum goes on the
+                shopping list.
+              </p>
             </div>
             <button className="primary-button" type="button" onClick={showCreateDialog}>
               <Icon name="plus" />
@@ -602,84 +627,38 @@ function App() {
             </button>
           </section>
 
-          {error ? (
-            <p className="notice error" role="alert">
-              <Icon name="alert" />
-              {error}
-            </p>
-          ) : null}
-          {message ? (
-            <p className="notice message" role="status">
-              <Icon name="check" />
-              {message}
-              <button
-                className="icon-button"
-                aria-label="Dismiss notification"
-                onClick={() => setMessage('')}
-              >
-                <Icon name="close" />
-              </button>
-            </p>
-          ) : null}
-
           <section className="summary-grid" aria-label="Inventory overview">
-            <button
-              className={`summary-card ${filter === 'ALL' ? 'selected' : ''}`}
-              onClick={() => setFilter('ALL')}
-              aria-pressed={filter === 'ALL'}
-            >
-              <span className="summary-icon all">
-                <Icon name="inventory" />
-              </span>
-              <span className="summary-copy">
-                <span>All essentials</span>
-                <strong>{isLoading ? '...' : items.length}</strong>
-                <small>Items in your home</small>
-              </span>
-            </button>
-            {(['GROCERY', 'MEDICINE', 'HOUSEHOLD'] as const).map((category) => (
-              <button
-                key={category}
-                className={`summary-card ${filter === category ? 'selected' : ''}`}
-                onClick={() => setFilter(category)}
-                aria-pressed={filter === category}
-              >
-                <span className={`summary-icon ${category.toLowerCase()}`}>
-                  <Icon name={categoryIcons[category]} />
-                </span>
-                <span className="summary-copy">
-                  <span>{categoryLabels[category]}</span>
-                  <strong>{isLoading ? '...' : categoryCount(category)}</strong>
-                  <small>
-                    {category === 'GROCERY'
-                      ? 'Pantry & kitchen'
-                      : category === 'MEDICINE'
-                        ? 'Care for the family'
-                        : 'Everyday home supplies'}
-                  </small>
-                </span>
-              </button>
-            ))}
-          </section>
-
-          {!isLoading && lowStockCount > 0 ? (
-            <div className="restock-banner">
-              <span className="restock-icon">
+            {summaryCards.map((card) => {
+              const tone = card.key === 'ALL' ? 'all' : card.key.toLowerCase()
+              const selected = filter === card.key && stockFilter === 'ALL' && !search
+              return (
+                <a
+                  key={card.key}
+                  href="#inventory"
+                  className={`summary-card tone-${tone}${selected ? ' selected' : ''}`}
+                  aria-current={selected ? 'true' : undefined}
+                  onClick={() => showItems(card.key)}
+                >
+                  <span className="summary-icon">
+                    <Icon name={card.key === 'ALL' ? 'inventory' : categoryIcons[card.key]} />
+                  </span>
+                  <span className="summary-label">{card.label}</span>
+                  <span className="summary-number">{isLoading ? '...' : card.count}</span>
+                  <span className="summary-hint">{card.hint}</span>
+                </a>
+              )
+            })}
+            <a href="#shopping" className="summary-card tone-buy">
+              <span className="summary-icon">
                 <Icon name="basket" />
               </span>
-              <p>
-                <strong>A few things need a top-up.</strong>
-                <span>
-                  {lowStockCount} {lowStockCount === 1 ? 'item is' : 'items are'} below your minimum
-                  stock level.
-                </span>
-              </p>
-              <a href="#shopping">
-                View shopping list
-                <Icon name="arrow" />
-              </a>
-            </div>
-          ) : null}
+              <span className="summary-label">To buy</span>
+              <span className="summary-number">{isLoading ? '...' : shop.length}</span>
+              <span className="summary-hint">
+                {statusCounts.OUT} out of stock, {statusCounts.LOW} running low
+              </span>
+            </a>
+          </section>
 
           <div className="inventory-layout">
             <section
@@ -689,12 +668,10 @@ function App() {
               aria-busy={isLoading}
             >
               <div className="section-heading">
-                <div>
-                  <h2 id="inventory-title">
-                    Your inventory <span className="heading-count">{items.length}</span>
-                  </h2>
-                  <p>The everyday things that keep home running.</p>
-                </div>
+                <h2 id="inventory-title">Your inventory</h2>
+                <p>
+                  Showing {filteredItems.length} of {items.length} items
+                </p>
               </div>
               <div className="inventory-toolbar">
                 <label className="search-field">
@@ -702,100 +679,60 @@ function App() {
                   <input
                     aria-label="Search inventory"
                     type="search"
-                    placeholder="Find an essential..."
+                    placeholder="Search by name or note"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </label>
-                <button
-                  className={`stock-filter ${onlyLowStock ? 'active' : ''}`}
-                  type="button"
-                  aria-pressed={onlyLowStock}
-                  onClick={() => setOnlyLowStock(!onlyLowStock)}
-                >
-                  <span className="status-dot" />
-                  Low stock<span>{lowStockCount}</span>
-                </button>
+                <div className="stock-filters" role="group" aria-label="Filter by stock">
+                  <button
+                    type="button"
+                    aria-pressed={stockFilter === 'ALL'}
+                    onClick={() => setStockFilter('ALL')}
+                  >
+                    Any stock
+                  </button>
+                  <button
+                    type="button"
+                    className="tone-low"
+                    aria-pressed={stockFilter === 'LOW'}
+                    onClick={() => setStockFilter('LOW')}
+                  >
+                    Running low <span className="filter-count">{statusCounts.LOW}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tone-out"
+                    aria-pressed={stockFilter === 'OUT'}
+                    onClick={() => setStockFilter('OUT')}
+                  >
+                    Out of stock <span className="filter-count">{statusCounts.OUT}</span>
+                  </button>
+                </div>
               </div>
-              <div className="filters" aria-label="Filter by category">
+              <div className="category-tabs" role="group" aria-label="Filter by category">
                 <button
                   type="button"
-                  className={filter === 'ALL' ? 'active' : ''}
                   aria-pressed={filter === 'ALL'}
                   onClick={() => setFilter('ALL')}
                 >
-                  All items
+                  All items <span className="filter-count">{items.length}</span>
                 </button>
-                {categories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className={filter === category ? 'active' : ''}
-                    aria-pressed={filter === category}
-                    onClick={() => setFilter(category)}
-                  >
-                    {categoryLabels[category]}
-                  </button>
-                ))}
+                {categories
+                  .filter((category) => categoryCount(category) > 0 || filter === category)
+                  .map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      className={`tone-${category.toLowerCase()}`}
+                      aria-pressed={filter === category}
+                      onClick={() => setFilter(category)}
+                    >
+                      {categoryLabels[category]}{' '}
+                      <span className="filter-count">{categoryCount(category)}</span>
+                    </button>
+                  ))}
               </div>
-
-              {quickActionItem && quickActionMode ? (
-                <div className="quick-action" role="group" aria-label="Quick action">
-                  <div className="quick-action-heading">
-                    <span className="quick-action-title">
-                      {quickActionMode === 'ADD'
-                        ? `Add stock to ${quickActionItem.name}`
-                        : quickActionMode === 'REDUCE'
-                          ? `Reduce stock from ${quickActionItem.name}`
-                          : `Set threshold for ${quickActionItem.name}`}
-                    </span>
-                    <span>
-                      Current: {quickActionItem.quantity} {unitLabels[quickActionItem.unit]}
-                      <span className="quick-action-divider">/</span>Minimum:{' '}
-                      {quickActionItem.threshold} {unitLabels[quickActionItem.unit]}
-                    </span>
-                  </div>
-                  <div className="quick-action-controls">
-                    <input
-                      ref={quickActionInput}
-                      aria-label="Action value"
-                      type="number"
-                      min={quickActionMode === 'THRESHOLD' ? '0' : '0.01'}
-                      step="0.01"
-                      value={quickActionValue}
-                      onChange={(e) => setQuickActionValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          void applyQuickAction()
-                        }
-                      }}
-                      required
-                    />
-                    <button
-                      className="primary-button"
-                      type="button"
-                      onClick={() => void applyQuickAction()}
-                      disabled={isQuickActionSaving}
-                    >
-                      {isQuickActionSaving ? 'Saving...' : 'Apply'}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={closeQuickAction}
-                      disabled={isQuickActionSaving}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  {quickActionFeedback ? (
-                    <small className="quick-action-feedback" role="status">
-                      {quickActionFeedback}
-                    </small>
-                  ) : null}
-                </div>
-              ) : null}
 
               <div className="table-wrap" role="region" aria-label="Inventory table" tabIndex={0}>
                 <table>
@@ -804,30 +741,28 @@ function App() {
                       <th scope="col">Item</th>
                       <th scope="col">In stock</th>
                       <th scope="col">Minimum</th>
-                      <th scope="col">Actions</th>
+                      <th scope="col">Update</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredItems.map((item) => {
-                      const low = isBelowThreshold(item.quantity, item.threshold)
-                      const stockPercent =
-                        item.threshold > 0
-                          ? Math.min(100, (item.quantity / (item.threshold * 2)) * 100)
-                          : item.quantity > 0
-                            ? 100
-                            : 0
-                      return (
-                        <tr key={item.id} className={low ? 'low' : ''}>
+                    {filteredItems.flatMap((item) => {
+                      const status = getStockStatus(item.quantity, item.threshold)
+                      const isOpen = quickActionItem?.id === item.id && quickActionMode !== null
+                      const rows = [
+                        <tr
+                          key={item.id}
+                          className={`stock-row status-${status.toLowerCase()}${isOpen ? ' is-editing' : ''}`}
+                        >
                           <td>
                             <div className="item-identity">
-                              <span className={`item-icon ${item.category.toLowerCase()}`}>
+                              <span className={`item-icon tone-${item.category.toLowerCase()}`}>
                                 <Icon name={categoryIcons[item.category]} />
                               </span>
                               <div>
                                 <span className="item-name">{item.name}</span>
                                 <span className="item-meta">
                                   {categoryLabels[item.category]}
-                                  {item.medicineFor ? ` / ${personLabels[item.medicineFor]}` : ''}
+                                  {item.medicineFor ? ` for ${personLabels[item.medicineFor]}` : ''}
                                 </span>
                                 {item.notes ? (
                                   <span className="item-notes">{item.notes}</span>
@@ -835,75 +770,142 @@ function App() {
                               </div>
                             </div>
                           </td>
-                          <td>
-                            <span className={`quantity ${low ? 'quantity-low' : ''}`}>
+                          <td data-label="In stock">
+                            <span className="quantity">
                               {item.quantity}
                               <small>{unitLabels[item.unit]}</small>
                             </span>
-                            <span className={`stock-track ${low ? 'stock-track-low' : ''}`}>
-                              <span style={{ width: `${stockPercent}%` }} />
-                            </span>
-                            <span className={`stock-status ${low ? 'stock-status-low' : ''}`}>
-                              {item.quantity === 0
-                                ? 'Out of stock'
-                                : low
-                                  ? 'Running low'
-                                  : 'In good supply'}
+                            <span className={`status-pill status-${status.toLowerCase()}`}>
+                              {statusLabels[status]}
                             </span>
                           </td>
-                          <td>
+                          <td data-label="Minimum">
                             <span className="minimum-quantity">
                               {item.threshold} <small>{unitLabels[item.unit]}</small>
                             </span>
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => openQuickAction(item, 'THRESHOLD')}
+                              disabled={isQuickActionSaving}
+                              title={`Change the minimum stock for ${item.name}`}
+                            >
+                              Change
+                            </button>
                           </td>
                           <td>
                             <div className="row-actions">
-                              <div className="quantity-actions">
-                                <button
-                                  type="button"
-                                  onClick={() => openQuickAction(item, 'REDUCE')}
-                                  disabled={isQuickActionSaving}
-                                  aria-label="Reduce"
-                                  title={`Reduce ${item.name}`}
-                                >
-                                  <Icon name="minus" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openQuickAction(item, 'ADD')}
-                                  disabled={isQuickActionSaving}
-                                  aria-label="Add"
-                                  title={`Add stock to ${item.name}`}
-                                >
-                                  <Icon name="plus" />
-                                </button>
-                              </div>
                               <button
-                                className="icon-button"
                                 type="button"
-                                onClick={() => openQuickAction(item, 'THRESHOLD')}
-                                disabled={isQuickActionSaving}
-                                aria-label="Threshold"
-                                title={`Set minimum stock for ${item.name}`}
+                                className="action-button action-used"
+                                onClick={() => openQuickAction(item, 'REDUCE')}
+                                disabled={isQuickActionSaving || item.quantity <= 0}
+                                title={`Record that you used some ${item.name}`}
                               >
-                                <Icon name="threshold" />
+                                <Icon name="minus" />
+                                Used
+                              </button>
+                              <button
+                                type="button"
+                                className="action-button action-bought"
+                                onClick={() => openQuickAction(item, 'ADD')}
+                                disabled={isQuickActionSaving}
+                                title={`Record that you bought more ${item.name}`}
+                              >
+                                <Icon name="plus" />
+                                Bought
                               </button>
                               {user?.role === 'ADMIN' ? (
                                 <button
-                                  className="icon-button delete-button"
                                   type="button"
+                                  className="action-button action-delete"
                                   onClick={() => void remove(item)}
                                   disabled={isQuickActionSaving}
-                                  aria-label="Delete"
                                   title={`Delete ${item.name}`}
                                 >
                                   <Icon name="trash" />
+                                  Delete
                                 </button>
                               ) : null}
                             </div>
                           </td>
-                        </tr>
-                      )
+                        </tr>,
+                      ]
+
+                      if (isOpen && quickActionItem && quickActionMode) {
+                        rows.push(
+                          <tr key={`${item.id}-action`} className="action-row">
+                            <td colSpan={4}>
+                              <div
+                                className={`quick-action mode-${quickActionMode.toLowerCase()}`}
+                                role="group"
+                                aria-label="Quick action"
+                              >
+                                <label className="quick-action-field">
+                                  <span className="quick-action-title">
+                                    {quickActionMode === 'ADD'
+                                      ? 'How much did you buy?'
+                                      : quickActionMode === 'REDUCE'
+                                        ? 'How much did you use?'
+                                        : 'Keep at least this much at home'}
+                                  </span>
+                                  <span className="quick-action-input">
+                                    <input
+                                      ref={quickActionInput}
+                                      type="number"
+                                      min={quickActionMode === 'THRESHOLD' ? '0' : '0.01'}
+                                      step="0.01"
+                                      value={quickActionValue}
+                                      onChange={(e) => setQuickActionValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault()
+                                          void applyQuickAction()
+                                        }
+                                        if (e.key === 'Escape') closeQuickAction()
+                                      }}
+                                      required
+                                    />
+                                    <span className="unit-suffix">
+                                      {unitLabels[quickActionItem.unit]}
+                                    </span>
+                                  </span>
+                                </label>
+                                <div className="quick-action-buttons">
+                                  <button
+                                    className="primary-button"
+                                    type="button"
+                                    onClick={() => void applyQuickAction()}
+                                    disabled={isQuickActionSaving}
+                                  >
+                                    {isQuickActionSaving ? 'Saving...' : 'Save'}
+                                  </button>
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={closeQuickAction}
+                                    disabled={isQuickActionSaving}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                                <p className="quick-action-context">
+                                  You have{' '}
+                                  {formatAmount(quickActionItem.quantity, quickActionItem.unit)}.
+                                  Minimum is{' '}
+                                  {formatAmount(quickActionItem.threshold, quickActionItem.unit)}.
+                                </p>
+                                {quickActionError ? (
+                                  <p className="quick-action-error" role="alert">
+                                    {quickActionError}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>,
+                        )
+                      }
+                      return rows
                     })}
                   </tbody>
                 </table>
@@ -928,29 +930,12 @@ function App() {
                   </p>
                   <button
                     className="secondary-button"
-                    onClick={
-                      items.length === 0
-                        ? showCreateDialog
-                        : () => {
-                            setSearch('')
-                            setFilter('ALL')
-                            setOnlyLowStock(false)
-                          }
-                    }
+                    onClick={items.length === 0 ? showCreateDialog : resetFilters}
                   >
                     {items.length === 0 ? 'Add your first item' : 'Reset filters'}
                   </button>
                 </div>
               ) : null}
-              <div className="inventory-footer">
-                <span>
-                  Showing {filteredItems.length} of {items.length} items
-                </span>
-                <span>
-                  <span className="status-dot" />
-                  Below minimum stock
-                </span>
-              </div>
             </section>
 
             <aside className="shopping surface" id="shopping" aria-labelledby="shopping-title">
@@ -958,10 +943,15 @@ function App() {
                 <span className="shopping-heading-icon">
                   <Icon name="basket" />
                 </span>
-                <span className="shopping-count">{shop.length} to pick up</span>
+                <div>
+                  <h2 id="shopping-title">Shopping list</h2>
+                  <p>
+                    {shop.length === 0
+                      ? 'Nothing to buy right now'
+                      : `${shop.length} ${shop.length === 1 ? 'item' : 'items'} to buy`}
+                  </p>
+                </div>
               </div>
-              <h2 id="shopping-title">Shopping list</h2>
-              <p className="section-description">A handy list for your next shop.</p>
               {isLoading ? (
                 <p className="shopping-empty" role="status">
                   Checking your essentials...
@@ -972,42 +962,47 @@ function App() {
                     <Icon name="check" />
                   </span>
                   <h3>You&apos;re all stocked up.</h3>
-                  <p>Items appear here when they fall below their minimum.</p>
+                  <p>Items appear here when they run out or drop below their minimum.</p>
                 </div>
               ) : (
-                <ul className="shopping-items">
-                  {shop.map((item) => (
-                    <li key={item.id}>
-                      <span className={`shopping-item-icon ${item.category.toLowerCase()}`}>
-                        <Icon name={categoryIcons[item.category]} />
-                      </span>
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span
-                          title={formatNeedText(
-                            item.quantity,
-                            item.threshold,
-                            unitLabels[item.unit],
-                          )}
-                        >
-                          Pick up {item.missingBy} {unitLabels[item.unit]}
-                        </span>
-                        <small>
-                          {item.quantity} {unitLabels[item.unit]} left at home
-                        </small>
+                <>
+                  {[
+                    { key: 'out', title: 'Out of stock', list: outOfStockShop },
+                    { key: 'low', title: 'Running low', list: runningLowShop },
+                  ]
+                    .filter((group) => group.list.length > 0)
+                    .map((group) => (
+                      <div key={group.key} className={`shopping-group group-${group.key}`}>
+                        <h3>
+                          {group.title} <span>{group.list.length}</span>
+                        </h3>
+                        <ul className="shopping-items">
+                          {group.list.map((item) => (
+                            <li key={item.id}>
+                              <span
+                                className={`shopping-item-icon tone-${item.category.toLowerCase()}`}
+                              >
+                                <Icon name={categoryIcons[item.category]} />
+                              </span>
+                              <div>
+                                <strong>{item.name}</strong>
+                                <span className="shopping-need">
+                                  {item.missingBy > 0
+                                    ? `Buy ${formatAmount(item.missingBy, item.unit)}`
+                                    : 'Buy more'}
+                                </span>
+                                <small>
+                                  Have {formatAmount(item.quantity, item.unit)}, minimum{' '}
+                                  {formatAmount(item.threshold, item.unit)}
+                                </small>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                    </li>
-                  ))}
-                </ul>
+                    ))}
+                </>
               )}
-              <div className="shopping-note">
-                <Icon name="check" />
-                <p>
-                  Always up to date.
-                  <br />
-                  <span>Your list follows your stock levels.</span>
-                </p>
-              </div>
             </aside>
           </div>
 
@@ -1017,13 +1012,8 @@ function App() {
             aria-labelledby="medicine-title"
           >
             <div className="section-heading">
-              <div>
-                <h2 id="medicine-title">
-                  <Icon name="medicine" />A little care for everyone
-                </h2>
-                <p>Your family&apos;s medicines, organised by person.</p>
-              </div>
-              <span className="subtle-badge">{categoryCount('MEDICINE')} medicines</span>
+              <h2 id="medicine-title">Medicines by person</h2>
+              <p>{categoryCount('MEDICINE')} medicines</p>
             </div>
             <div className="med-grid">
               {medicineBuckets.map((bucket) => (
@@ -1036,21 +1026,22 @@ function App() {
                     <span className="person-count">{bucket.items.length}</span>
                   </h3>
                   <ul>
-                    {bucket.items.map((item) => (
-                      <li key={item.id}>
-                        <span>{item.name}</span>
-                        <small
-                          className={
-                            isBelowThreshold(item.quantity, item.threshold) ? 'quantity-low' : ''
-                          }
-                        >
-                          {item.quantity} {unitLabels[item.unit]}
-                          {isBelowThreshold(item.quantity, item.threshold) ? (
-                            <span className="medicine-low-label">Low stock</span>
-                          ) : null}
-                        </small>
-                      </li>
-                    ))}
+                    {bucket.items.map((item) => {
+                      const status = getStockStatus(item.quantity, item.threshold)
+                      return (
+                        <li key={item.id}>
+                          <span>{item.name}</span>
+                          <small>
+                            {formatAmount(item.quantity, item.unit)}
+                            {status !== 'OK' ? (
+                              <span className={`status-pill status-${status.toLowerCase()}`}>
+                                {statusLabels[status]}
+                              </span>
+                            ) : null}
+                          </small>
+                        </li>
+                      )
+                    })}
                     {bucket.items.length === 0 ? (
                       <li className="person-empty">No medicines added yet.</li>
                     ) : null}
@@ -1059,21 +1050,32 @@ function App() {
               ))}
             </div>
           </section>
-          <footer className="page-footer">
-            <Icon name="home" />
-            Home Stock Manager<span>Good things, kept in order.</span>
-          </footer>
         </div>
       </main>
+
+      {notice ? (
+        <div
+          className={`toast toast-${notice.kind}`}
+          role={notice.kind === 'error' ? 'alert' : 'status'}
+        >
+          <Icon name={notice.kind === 'error' ? 'alert' : 'check'} />
+          <span>{notice.text}</span>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => setNotice(null)}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      ) : null}
 
       <dialog className="create-dialog" ref={createDialog} aria-labelledby="create-title">
         <div className="dialog-heading">
           <div>
-            <span className="dialog-icon">
-              <Icon name="plus" />
-            </span>
-            <h2 id="create-title">A new home essential</h2>
-            <p>Add it once. Keep track together.</p>
+            <h2 id="create-title">Add an item</h2>
+            <p>Only the name is required. You can fill in the rest later.</p>
           </div>
           <button
             className="icon-button"
@@ -1090,7 +1092,7 @@ function App() {
             Name
             <input
               value={form.name}
-              placeholder="e.g. Olive oil"
+              placeholder="e.g. Basmati rice"
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               required
             />
@@ -1121,7 +1123,7 @@ function App() {
               >
                 {units.map((unit) => (
                   <option key={unit} value={unit}>
-                    {unitLabels[unit]}
+                    {unitNames[unit]}
                   </option>
                 ))}
               </select>
@@ -1130,7 +1132,7 @@ function App() {
 
           <div className="form-row">
             <label>
-              Quantity
+              Quantity at home
               <input
                 type="number"
                 min="0"
@@ -1153,7 +1155,10 @@ function App() {
               />
             </label>
           </div>
-          <p className="field-hint">Below this minimum? We&apos;ll add it to your shopping list.</p>
+          <p className="field-hint">
+            Leave the quantity at 0 if you&apos;ve run out: it goes straight onto the shopping list.
+            It also goes there whenever stock drops below the minimum.
+          </p>
 
           {form.category === 'MEDICINE' ? (
             <label>

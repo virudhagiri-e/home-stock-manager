@@ -1,7 +1,7 @@
 import type { ItemCategory, MedicineFor } from '@prisma/client'
 import { prisma } from '../db.js'
 import { itemRepository } from '../repositories/item.repository.js'
-import { buildShoppingList, groupMedicinesByOwner, isLowStock } from './inventory.logic.js'
+import { buildShoppingList, groupMedicinesByOwner, needsRestock } from './inventory.logic.js'
 
 type CreateOrUpdateItem = {
   name?: string
@@ -26,10 +26,15 @@ export const inventoryService = {
   async listItems(category?: ItemCategory, lowStockOnly = false) {
     const items = await itemRepository.list(category)
     if (!lowStockOnly) return items
-    return items.filter(isLowStock)
+    return items.filter(needsRestock)
   },
 
-  async createItem(payload: Required<Pick<CreateOrUpdateItem, 'name' | 'category' | 'unit' | 'quantity' | 'threshold'>> & Pick<CreateOrUpdateItem, 'notes' | 'medicineFor'>) {
+  async createItem(
+    payload: Required<
+      Pick<CreateOrUpdateItem, 'name' | 'category' | 'unit' | 'quantity' | 'threshold'>
+    > &
+      Pick<CreateOrUpdateItem, 'notes' | 'medicineFor'>,
+  ) {
     const normalizedPayload = {
       ...payload,
       medicineFor: payload.category === 'MEDICINE' ? payload.medicineFor : undefined,
