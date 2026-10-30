@@ -1,8 +1,15 @@
-import type { ItemCategory } from '@prisma/client'
+import { Prisma, type ItemCategory } from '@prisma/client'
 import type { Request, Response } from 'express'
 import { type AuthenticatedRequest, requireAdmin } from '../middlewares/auth.js'
 import { itemSchema, stockAdjustSchema } from '../schemas.js'
 import { inventoryService } from '../services/inventory.service.js'
+
+const duplicateItemMessage =
+  'An item with this name already exists in that category. Use a different name or category.'
+
+function prismaErrorCode(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined
+}
 
 export const inventoryController = {
   async list(request: Request, response: Response) {
@@ -18,8 +25,16 @@ export const inventoryController = {
       return
     }
 
-    const item = await inventoryService.createItem(parsed.data)
-    response.status(201).json(item)
+    try {
+      const item = await inventoryService.createItem(parsed.data)
+      response.status(201).json(item)
+    } catch (error) {
+      if (prismaErrorCode(error) === 'P2002') {
+        response.status(409).json({ message: duplicateItemMessage })
+        return
+      }
+      throw error
+    }
   },
 
   async update(request: Request, response: Response) {
@@ -30,8 +45,21 @@ export const inventoryController = {
       return
     }
 
-    const updated = await inventoryService.updateItem(id, parsed.data)
-    response.json(updated)
+    try {
+      const updated = await inventoryService.updateItem(id, parsed.data)
+      response.json(updated)
+    } catch (error) {
+      const code = prismaErrorCode(error)
+      if (code === 'P2002') {
+        response.status(409).json({ message: duplicateItemMessage })
+        return
+      }
+      if (code === 'P2025') {
+        response.status(404).json({ message: 'Item not found' })
+        return
+      }
+      throw error
+    }
   },
 
   async adjustStock(request: Request, response: Response) {

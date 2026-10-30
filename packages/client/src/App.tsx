@@ -14,17 +14,29 @@ import type { ItemCategory, MedicineFor, ShoppingItem, StockItem, Unit, User } f
 import { getStockStatus, type StockStatus } from './utils/stock.js'
 
 const categories: ItemCategory[] = ['GROCERY', 'MEDICINE', 'HOUSEHOLD', 'OTHER']
-const units: Unit[] = [
-  'KILOGRAM',
-  'GRAM',
-  'LITER',
-  'MILLILITER',
-  'COUNT',
-  'PACKET',
-  'BOTTLE',
-  'TABLET',
-  'STRIP',
-]
+// Units that make sense per category; the first one is the default when that category is chosen.
+const categoryUnits: Record<ItemCategory, Unit[]> = {
+  GROCERY: ['KILOGRAM', 'GRAM', 'LITER', 'MILLILITER', 'PACKET', 'BOTTLE', 'COUNT'],
+  MEDICINE: ['STRIP', 'TABLET', 'BOTTLE', 'PACKET'],
+  HOUSEHOLD: ['COUNT', 'PACKET', 'BOTTLE', 'LITER', 'KILOGRAM'],
+  OTHER: [
+    'COUNT',
+    'PACKET',
+    'BOTTLE',
+    'KILOGRAM',
+    'GRAM',
+    'LITER',
+    'MILLILITER',
+    'TABLET',
+    'STRIP',
+  ],
+}
+const namePlaceholders: Record<ItemCategory, string> = {
+  GROCERY: 'e.g. Basmati rice',
+  MEDICINE: 'e.g. Paracetamol 500 mg',
+  HOUSEHOLD: 'e.g. Dishwasher tablets',
+  OTHER: 'e.g. AA batteries',
+}
 const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']
 type QuickActionMode = 'REDUCE' | 'ADD' | 'THRESHOLD'
 type StockFilter = 'ALL' | 'LOW' | 'OUT'
@@ -54,15 +66,15 @@ const unitLabels: Record<Unit, string> = {
   PACKET: 'packets',
 }
 const unitNames: Record<Unit, string> = {
-  KILOGRAM: 'Kilograms (kg)',
-  GRAM: 'Grams (g)',
-  LITER: 'Litres (l)',
-  MILLILITER: 'Millilitres (ml)',
-  COUNT: 'Pieces (pcs)',
-  PACKET: 'Packets',
-  BOTTLE: 'Bottles',
-  TABLET: 'Tablets',
-  STRIP: 'Strips',
+  KILOGRAM: 'kg',
+  GRAM: 'g',
+  LITER: 'litres',
+  MILLILITER: 'ml',
+  COUNT: 'pieces',
+  PACKET: 'packets',
+  BOTTLE: 'bottles',
+  TABLET: 'tablets',
+  STRIP: 'strips',
 }
 const personLabels: Record<MedicineFor, string> = {
   ME: 'Me',
@@ -169,6 +181,45 @@ function PantryIllustration() {
   )
 }
 
+// Radio buttons styled as tappable chips, used instead of native dropdowns for short lists.
+function ChoiceGroup<T extends string>({
+  legend,
+  name,
+  options,
+  value,
+  labelFor,
+  toneFor,
+  onChange,
+}: {
+  legend: string
+  name: string
+  options: readonly T[]
+  value: T
+  labelFor: (option: T) => string
+  toneFor?: (option: T) => string
+  onChange: (option: T) => void
+}) {
+  return (
+    <fieldset className="choice-group">
+      <legend>{legend}</legend>
+      <div className="choice-options">
+        {options.map((option) => (
+          <label key={option} className={`choice ${toneFor?.(option) ?? 'tone-all'}`}>
+            <input
+              type="radio"
+              name={name}
+              value={option}
+              checked={value === option}
+              onChange={() => onChange(option)}
+            />
+            <span>{labelFor(option)}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
 function formatAmount(value: number, unit: Unit) {
   const label = unitLabels[unit]
   return `${value} ${value === 1 && label.endsWith('s') && label !== 'pcs' ? label.slice(0, -1) : label}`
@@ -213,6 +264,7 @@ function App() {
   const [isSigningIn, setIsSigningIn] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [editingItem, setEditingItem] = useState<StockItem | null>(null)
   const createDialog = useRef<HTMLDialogElement>(null)
   const quickActionInput = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState(emptyForm)
@@ -326,8 +378,13 @@ function App() {
     }))
   }, [items])
 
-  const outOfStockShop = shop.filter((item) => item.outOfStock)
-  const runningLowShop = shop.filter((item) => !item.outOfStock)
+  const shoppingGroups = categories
+    .map((category) => ({ category, list: shop.filter((item) => item.category === category) }))
+    .filter((group) => group.list.length > 0)
+  const outOfStockToBuy = shop.filter((item) => item.outOfStock).length
+  const unitOptions = categoryUnits[form.category].includes(form.unit)
+    ? categoryUnits[form.category]
+    : [form.unit, ...categoryUnits[form.category]]
 
   function showItems(category: ItemCategory | 'ALL') {
     setFilter(category)
@@ -340,8 +397,37 @@ function App() {
   }
 
   function showCreateDialog() {
+    if (editingItem) {
+      setEditingItem(null)
+      setForm(emptyForm)
+    }
     setCreateError('')
     createDialog.current?.showModal()
+  }
+
+  function showEditDialog(item: StockItem) {
+    closeQuickAction()
+    setEditingItem(item)
+    setForm({
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      quantity: item.quantity,
+      threshold: item.threshold,
+      notes: item.notes ?? '',
+      medicineFor: item.medicineFor ?? 'FAMILY',
+    })
+    setCreateError('')
+    createDialog.current?.showModal()
+  }
+
+  function changeCategory(category: ItemCategory) {
+    setForm((prev) => ({
+      ...prev,
+      category,
+      // Switching back to an edited item's own category restores its saved unit.
+      unit: editingItem?.category === category ? editingItem.unit : categoryUnits[category][0],
+    }))
   }
 
   async function submitCreate(e: FormEvent) {
@@ -353,24 +439,34 @@ function App() {
     setIsCreating(true)
 
     try {
-      const payload = {
-        ...form,
-        medicineFor: form.category === 'MEDICINE' ? form.medicineFor : undefined,
+      const medicineFor = form.category === 'MEDICINE' ? form.medicineFor : undefined
+      if (editingItem) {
+        await updateItem(token, editingItem.id, {
+          name: form.name,
+          category: form.category,
+          unit: form.unit,
+          threshold: form.threshold,
+          notes: form.notes,
+          medicineFor,
+        })
+        setNotice({ kind: 'success', text: `Saved changes to ${form.name}.` })
+      } else {
+        await createItem(token, { ...form, medicineFor })
+        setNotice({
+          kind: 'success',
+          text:
+            form.quantity <= 0
+              ? `${form.name} added. It's out of stock, so it's on your shopping list.`
+              : `${form.name} added.`,
+        })
       }
 
-      await createItem(token, payload)
+      setEditingItem(null)
       setForm(emptyForm)
       await loadData(token)
-      setNotice({
-        kind: 'success',
-        text:
-          payload.quantity <= 0
-            ? `${payload.name} added. It's out of stock, so it's on your shopping list.`
-            : `${payload.name} added.`,
-      })
       createDialog.current?.close()
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Unable to add item. Please try again.')
+      setCreateError(err instanceof Error ? err.message : 'Unable to save. Please try again.')
     } finally {
       setIsCreating(false)
     }
@@ -767,6 +863,15 @@ function App() {
                                 {item.notes ? (
                                   <span className="item-notes">{item.notes}</span>
                                 ) : null}
+                                <button
+                                  type="button"
+                                  className="link-button"
+                                  onClick={() => showEditDialog(item)}
+                                  disabled={isQuickActionSaving}
+                                  title={`Edit name, category, unit or notes for ${item.name}`}
+                                >
+                                  Edit
+                                </button>
                               </div>
                             </div>
                           </td>
@@ -948,7 +1053,9 @@ function App() {
                   <p>
                     {shop.length === 0
                       ? 'Nothing to buy right now'
-                      : `${shop.length} ${shop.length === 1 ? 'item' : 'items'} to buy`}
+                      : `${shop.length} ${shop.length === 1 ? 'item' : 'items'} to buy${
+                          outOfStockToBuy > 0 ? `, ${outOfStockToBuy} out of stock` : ''
+                        }`}
                   </p>
                 </div>
               </div>
@@ -965,43 +1072,42 @@ function App() {
                   <p>Items appear here when they run out or drop below their minimum.</p>
                 </div>
               ) : (
-                <>
-                  {[
-                    { key: 'out', title: 'Out of stock', list: outOfStockShop },
-                    { key: 'low', title: 'Running low', list: runningLowShop },
-                  ]
-                    .filter((group) => group.list.length > 0)
-                    .map((group) => (
-                      <div key={group.key} className={`shopping-group group-${group.key}`}>
-                        <h3>
-                          {group.title} <span>{group.list.length}</span>
-                        </h3>
-                        <ul className="shopping-items">
-                          {group.list.map((item) => (
-                            <li key={item.id}>
-                              <span
-                                className={`shopping-item-icon tone-${item.category.toLowerCase()}`}
-                              >
-                                <Icon name={categoryIcons[item.category]} />
-                              </span>
-                              <div>
-                                <strong>{item.name}</strong>
-                                <span className="shopping-need">
-                                  {item.missingBy > 0
-                                    ? `Buy ${formatAmount(item.missingBy, item.unit)}`
-                                    : 'Buy more'}
-                                </span>
-                                <small>
-                                  Have {formatAmount(item.quantity, item.unit)}, minimum{' '}
-                                  {formatAmount(item.threshold, item.unit)}
-                                </small>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                </>
+                shoppingGroups.map((group) => (
+                  <section
+                    key={group.category}
+                    className={`shopping-group tone-${group.category.toLowerCase()}`}
+                    aria-label={`${categoryLabels[group.category]} to buy`}
+                  >
+                    <h3>
+                      <span className="shopping-group-icon">
+                        <Icon name={categoryIcons[group.category]} />
+                      </span>
+                      {categoryLabels[group.category]}
+                      <span className="shopping-group-count">{group.list.length}</span>
+                    </h3>
+                    <ul className="shopping-items">
+                      {group.list.map((item) => (
+                        <li key={item.id} className={item.outOfStock ? 'need-out' : 'need-low'}>
+                          <div>
+                            <strong>{item.name}</strong>
+                            <span className="shopping-need">
+                              {item.missingBy > 0
+                                ? `Buy ${formatAmount(item.missingBy, item.unit)}`
+                                : 'Buy more'}
+                            </span>
+                            <small>
+                              Have {formatAmount(item.quantity, item.unit)}, minimum{' '}
+                              {formatAmount(item.threshold, item.unit)}
+                            </small>
+                          </div>
+                          <span className={`status-pill status-${item.outOfStock ? 'out' : 'low'}`}>
+                            {item.outOfStock ? statusLabels.OUT : statusLabels.LOW}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))
               )}
             </aside>
           </div>
@@ -1039,6 +1145,14 @@ function App() {
                               </span>
                             ) : null}
                           </small>
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => showEditDialog(item)}
+                            title={`Edit ${item.name}, including who it is for`}
+                          >
+                            Edit
+                          </button>
                         </li>
                       )
                     })}
@@ -1071,16 +1185,25 @@ function App() {
         </div>
       ) : null}
 
-      <dialog className="create-dialog" ref={createDialog} aria-labelledby="create-title">
+      <dialog
+        className="create-dialog"
+        ref={createDialog}
+        aria-labelledby="create-title"
+        onClose={() => setCreateError('')}
+      >
         <div className="dialog-heading">
           <div>
-            <h2 id="create-title">Add an item</h2>
-            <p>Only the name is required. You can fill in the rest later.</p>
+            <h2 id="create-title">{editingItem ? `Edit ${editingItem.name}` : 'Add an item'}</h2>
+            <p>
+              {editingItem
+                ? 'Change the details. Use Used or Bought to change how much you have.'
+                : 'Only the name is required. You can fill in the rest later.'}
+            </p>
           </div>
           <button
             className="icon-button"
             type="button"
-            aria-label="Close add item"
+            aria-label={editingItem ? 'Close edit item' : 'Close add item'}
             onClick={() => createDialog.current?.close()}
             disabled={isCreating}
           >
@@ -1092,55 +1215,58 @@ function App() {
             Name
             <input
               value={form.name}
-              placeholder="e.g. Basmati rice"
+              placeholder={namePlaceholders[form.category]}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               required
             />
           </label>
 
-          <div className="form-row">
-            <label>
-              Category
-              <select
-                value={form.category}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, category: e.target.value as ItemCategory }))
-                }
-              >
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {categoryLabels[category]}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <ChoiceGroup
+            legend="Category"
+            name="category"
+            options={categories}
+            value={form.category}
+            labelFor={(category) => categoryLabels[category]}
+            toneFor={(category) => `tone-${category.toLowerCase()}`}
+            onChange={changeCategory}
+          />
 
-            <label>
-              Unit
-              <select
-                value={form.unit}
-                onChange={(e) => setForm((prev) => ({ ...prev, unit: e.target.value as Unit }))}
-              >
-                {units.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unitNames[unit]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          {form.category === 'MEDICINE' ? (
+            <ChoiceGroup
+              legend="For whom"
+              name="medicine-for"
+              options={medicineGroups}
+              value={form.medicineFor}
+              labelFor={(group) => personLabels[group]}
+              toneFor={() => 'tone-medicine'}
+              onChange={(medicineFor) => setForm((prev) => ({ ...prev, medicineFor }))}
+            />
+          ) : null}
+
+          <ChoiceGroup
+            legend="Unit"
+            name="unit"
+            options={unitOptions}
+            value={form.unit}
+            labelFor={(unit) => unitNames[unit]}
+            onChange={(unit) => setForm((prev) => ({ ...prev, unit }))}
+          />
 
           <div className="form-row">
-            <label>
-              Quantity at home
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.quantity}
-                onChange={(e) => setForm((prev) => ({ ...prev, quantity: Number(e.target.value) }))}
-              />
-            </label>
+            {editingItem ? null : (
+              <label>
+                Quantity at home
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.quantity}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, quantity: Number(e.target.value) }))
+                  }
+                />
+              </label>
+            )}
 
             <label>
               Minimum stock
@@ -1155,28 +1281,12 @@ function App() {
               />
             </label>
           </div>
-          <p className="field-hint">
-            Leave the quantity at 0 if you&apos;ve run out: it goes straight onto the shopping list.
-            It also goes there whenever stock drops below the minimum.
-          </p>
-
-          {form.category === 'MEDICINE' ? (
-            <label>
-              For whom
-              <select
-                value={form.medicineFor}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, medicineFor: e.target.value as MedicineFor }))
-                }
-              >
-                {medicineGroups.map((group) => (
-                  <option key={group} value={group}>
-                    {personLabels[group]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+          {editingItem ? null : (
+            <p className="field-hint">
+              Leave the quantity at 0 if you&apos;ve run out: it goes straight onto the shopping
+              list. It also goes there whenever stock drops below the minimum.
+            </p>
+          )}
 
           <label>
             Notes <span className="optional-label">optional</span>
@@ -1202,8 +1312,14 @@ function App() {
               Cancel
             </button>
             <button className="primary-button" type="submit" disabled={isCreating}>
-              <Icon name="plus" />
-              {isCreating ? 'Adding item...' : 'Add item'}
+              <Icon name={editingItem ? 'check' : 'plus'} />
+              {editingItem
+                ? isCreating
+                  ? 'Saving...'
+                  : 'Save changes'
+                : isCreating
+                  ? 'Adding item...'
+                  : 'Add item'}
             </button>
           </div>
         </form>

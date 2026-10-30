@@ -270,6 +270,69 @@ textarea {
   min-height: 80px;
   resize: vertical;
 }
+/* Choice chips: radio buttons used instead of native dropdowns. */
+.choice-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.choice-group legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: #2f3555;
+  font-size: 14px;
+  font-weight: 700;
+}
+.choice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.choice {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 7px 14px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: #3d4466;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 150ms,
+    background 150ms;
+}
+.choice:hover {
+  border-color: var(--tone);
+}
+/* The radio covers the whole chip so a tap anywhere selects it. */
+.choice input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+.choice:has(input:checked) {
+  border-color: var(--tone);
+  background: var(--tone);
+  color: #fff;
+}
+.choice:has(input:focus-visible) {
+  outline: 3px solid #748ffc;
+  outline-offset: 2px;
+}
 .notice {
   display: flex;
   align-items: center;
@@ -672,8 +735,7 @@ td {
   gap: 12px;
   min-width: 170px;
 }
-.item-icon,
-.shopping-item-icon {
+.item-icon {
   display: grid;
   flex-shrink: 0;
   place-items: center;
@@ -683,8 +745,7 @@ td {
   background: var(--tone-light);
   color: var(--tone-text);
 }
-.item-icon .icon,
-.shopping-item-icon .icon {
+.item-icon .icon {
   width: 19px;
   height: 19px;
 }
@@ -943,46 +1004,68 @@ td {
   font-weight: 600;
   opacity: 0.92;
 }
+.shopping-group {
+  border-top: 1px solid #edf0f8;
+}
+.shopping-group:first-of-type {
+  border-top: 0;
+}
 .shopping-group h3 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 20px 6px;
+  gap: 9px;
+  padding: 14px 20px 4px;
+  color: var(--tone-text);
   font-size: 15px;
   font-weight: 800;
 }
-.shopping-group h3 span {
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-}
-.group-out h3 {
-  color: var(--out-text);
-}
-.group-out h3 span {
-  background: var(--out);
+.shopping-group-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--tone);
   color: #fff;
 }
-.group-low h3 {
-  color: var(--low-text);
+.shopping-group-icon .icon {
+  width: 16px;
+  height: 16px;
 }
-.group-low h3 span {
-  background: var(--low-light);
+.shopping-group-count {
+  margin-left: auto;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--tone-light);
+  color: var(--tone-text);
+  font-size: 12px;
 }
 .shopping-items {
   margin: 0;
-  padding: 0 20px;
+  padding: 0 20px 8px;
   list-style: none;
 }
 .shopping-items li {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding: 11px 0;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0 10px 12px;
+  border-left: 4px solid var(--low);
   border-top: 1px solid #edf0f8;
+}
+.shopping-items li.need-out {
+  border-left-color: var(--out);
 }
 .shopping-items li:first-child {
   border-top: 0;
+}
+.shopping-items li > div {
+  min-width: 0;
+}
+.shopping-items li .status-pill {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 .shopping-items strong {
   display: block;
@@ -993,14 +1076,13 @@ td {
 .shopping-need {
   display: block;
   margin-top: 2px;
-  color: var(--ink);
   font-size: 14px;
   font-weight: 700;
 }
-.group-out .shopping-need {
+.need-out .shopping-need {
   color: var(--out-text);
 }
-.group-low .shopping-need {
+.need-low .shopping-need {
   color: var(--low-text);
 }
 .shopping-items small {
