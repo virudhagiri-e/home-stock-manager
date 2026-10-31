@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { choice, rowFor, rows, shoppingEntry, signIn } from './helpers'
+import { choice, compactRowFor, rowFor, rows, shoppingEntry, signIn } from './helpers'
 
 async function saveQuickAction(page: Page, value: string) {
   const input = page.locator('.quick-action input')
@@ -158,8 +158,9 @@ test('new medicines appear in the right person group and shopping list', async (
     .locator('.person-medicines', { has: page.getByRole('heading', { name: /Child/ }) })
     .getByRole('listitem')
     .filter({ hasText: itemName })
-  await expect(medicine).toContainText('2 tablets')
-  await expect(medicine).toContainText('Running low')
+  await expect(
+    medicine.getByRole('button', { name: `${itemName}, 2 tablets, running low. Edit` }),
+  ).toBeVisible()
   await expect(shoppingEntry(page, itemName)).toContainText('Buy 3 tablets')
   await page.getByRole('searchbox', { name: 'Search inventory' }).fill(itemName)
   const row = rowFor(page, itemName)
@@ -168,6 +169,60 @@ test('new medicines appear in the right person group and shopping list', async (
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(row).toHaveCount(0)
   await expect(medicine).toHaveCount(0)
+})
+
+test('shopping list: Bought is prefilled with the amount to buy, and names open Edit', async ({
+  page,
+}) => {
+  await signIn(page)
+  const entry = shoppingEntry(page, 'Jaggery cubes Sweden')
+  await expect(entry).toContainText('Buy 200 g')
+
+  await entry.getByRole('button', { name: 'Bought', exact: true }).click()
+  const input = page.locator('.shopping-action .quick-action input')
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('200')
+  await expect(page.locator('.action-row')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(entry).toHaveCount(0)
+  await expect(rowFor(page, 'Jaggery cubes Sweden').locator('.quantity')).toHaveText('500g')
+
+  await rowFor(page, 'Jaggery cubes Sweden')
+    .getByRole('button', { name: 'Used', exact: true })
+    .click()
+  await page.locator('.quick-action input').fill('200')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(entry).toContainText('Buy 200 g')
+
+  await shoppingEntry(page, 'Tamarind').locator('.shopping-main').click()
+  const edit = page.getByRole('dialog', { name: 'Edit Tamarind' })
+  await expect(edit).toBeVisible()
+  await edit.getByRole('button', { name: 'Close edit item' }).click()
+})
+
+test('phones show medicines one per line with quick actions', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await signIn(page)
+  await page.getByRole('link', { name: 'Medicines' }).click()
+  const medicines = page.getByRole('region', { name: 'Medicines by person' })
+  await expect(medicines.locator('.compact-row')).toHaveCount(18)
+  const heights = await medicines
+    .locator('.compact-row')
+    .evaluateAll((list) => list.map((row) => row.getBoundingClientRect().height))
+  expect(Math.max(...heights)).toBeLessThan(80)
+
+  const dolo = medicines.locator('.compact-row', { hasText: 'Dolo 650' })
+  await dolo.getByRole('button', { name: 'Bought', exact: true }).click()
+  await expect(medicines.locator('.compact-action .quick-action input')).toBeFocused()
+  const amountBox = await medicines.locator('.compact-action .quick-action input').boundingBox()
+  expect(amountBox!.width).toBeGreaterThanOrEqual(90)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+  await dolo.locator('.compact-main').click()
+  const edit = page.getByRole('dialog', { name: 'Edit Dolo 650' })
+  await expect(edit).toBeVisible()
+  await expect(choice(edit, 'For whom', 'Family')).toBeChecked()
+  await edit.getByRole('button', { name: 'Close edit item' }).click()
 })
 
 test('summary counts are links that filter the inventory and open the shopping list', async ({
@@ -209,10 +264,11 @@ test('search, category, and stock filters combine and reset', async ({ page }) =
   await expect(page.getByText('No matching essentials.')).toBeVisible()
   await page.getByRole('button', { name: 'Reset filters', exact: true }).click()
   await expect(page.getByRole('searchbox', { name: 'Search inventory' })).toHaveValue('')
-  await expect(inventory.getByRole('button', { name: 'All items 35' })).toHaveAttribute(
+  await expect(inventory.getByRole('button', { name: 'Household 2' })).toHaveAttribute(
     'aria-pressed',
-    'true',
+    'false',
   )
+  await expect(inventory.getByRole('button', { name: /^All items/ })).toHaveCount(0)
   await expect(inventory.getByRole('button', { name: 'Any stock', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -222,6 +278,23 @@ test('search, category, and stock filters combine and reset', async ({ page }) =
   await expect(rows(page)).toHaveCount(7)
   await page.getByRole('searchbox', { name: 'Search inventory' }).fill('jaggery')
   await expect(rows(page)).toHaveCount(2)
+})
+
+test('category chips toggle: tap to filter, tap again to show everything', async ({ page }) => {
+  await signIn(page)
+  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const groceries = inventory.getByRole('button', { name: 'Groceries 15' })
+  const medicines = inventory.getByRole('button', { name: 'Medicines 18' })
+
+  await groceries.click()
+  await expect(groceries).toHaveAttribute('aria-pressed', 'true')
+  await expect(rows(page)).toHaveCount(15)
+  await medicines.click()
+  await expect(groceries).toHaveAttribute('aria-pressed', 'false')
+  await expect(rows(page)).toHaveCount(18)
+  await medicines.click()
+  await expect(medicines).toHaveAttribute('aria-pressed', 'false')
+  await expect(rows(page)).toHaveCount(35)
 })
 
 test('add item dialog offers units and examples that fit each category', async ({ page }) => {
@@ -366,7 +439,7 @@ test('mobile layout keeps navigation, inventory, and dialogs within the viewport
   expect(box!.x).toBeGreaterThanOrEqual(0)
   expect(box!.x + box!.width).toBeLessThanOrEqual(390)
   await page.keyboard.press('Escape')
-  await rowFor(page, 'Jeera').getByRole('button', { name: 'Bought', exact: true }).click()
+  await compactRowFor(page, 'Jeera').getByRole('button', { name: 'Bought', exact: true }).click()
   await expect(page.locator('.quick-action input')).toBeFocused()
   const actionBox = await page.locator('.quick-action').boundingBox()
   expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390)
@@ -412,6 +485,62 @@ test('phones show one section per tab without duplicate shortcuts', async ({ pag
   await nav.getByRole('link', { name: /^Inventory/ }).click()
   await expect(inventory).toBeVisible()
   await expect(addButton).toBeVisible()
+})
+
+test('phones show one slim line per item, and tapping one opens Edit', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await signIn(page)
+  const inventory = page.getByRole('region', { name: 'Your inventory' })
+
+  await expect(page.locator('table')).toHaveCount(0)
+  await expect(inventory.getByRole('group', { name: 'Filter by stock' })).toHaveCount(0)
+  await expect(inventory.locator('.compact-row')).toHaveCount(35)
+  const heights = await inventory
+    .locator('.compact-row')
+    .evaluateAll((rowsList) => rowsList.map((row) => row.getBoundingClientRect().height))
+  expect(Math.max(...heights)).toBeLessThan(80)
+
+  const volini = compactRowFor(page, 'Volini big tube')
+  await expect(volini).toHaveClass(/status-out/)
+  await expect(volini).toContainText('0pcs')
+  await expect(volini.getByRole('button', { name: 'Used', exact: true })).toBeDisabled()
+
+  await compactRowFor(page, 'Jeera')
+    .getByRole('button', { name: /^Jeera, 500 g/ })
+    .click()
+  const edit = page.getByRole('dialog', { name: 'Edit Jeera' })
+  await expect(edit).toBeVisible()
+  await expect(edit).toContainText('You have 500 g.')
+  await expect(edit.getByLabel('Minimum stock', { exact: true })).toHaveValue('250')
+  await edit.getByRole('button', { name: 'Close edit item' }).click()
+  await expect(edit).toBeHidden()
+
+  const itemName = `E2E Phone Delete ${Date.now()}`
+  await page.getByRole('button', { name: 'Add item', exact: true }).click()
+  const add = page.getByRole('dialog', { name: 'Add an item' })
+  await add.getByLabel('Name', { exact: true }).fill(itemName)
+  await add.getByRole('button', { name: 'Add item', exact: true }).click()
+  await expect(add).toBeHidden()
+
+  await compactRowFor(page, itemName).locator('.compact-main').click()
+  const editNew = page.getByRole('dialog', { name: `Edit ${itemName}` })
+  await expect(editNew).toContainText('You have 0 kg, out of stock.')
+  page.once('dialog', (confirmation) => confirmation.accept())
+  await editNew.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(editNew).toBeHidden()
+  await expect(compactRowFor(page, itemName)).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
+})
+
+test('family members do not see Delete in the edit form', async ({ page }) => {
+  await signIn(page, 'family')
+  await rowFor(page, 'Jeera').getByRole('button', { name: 'Edit', exact: true }).click()
+  const edit = page.getByRole('dialog', { name: 'Edit Jeera' })
+  await expect(edit).toBeVisible()
+  await expect(edit.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+  await edit.getByRole('button', { name: 'Close edit item' }).click()
 })
 
 test('shows useful empty inventory and fully-stocked shopping states', async ({ page }) => {

@@ -18,6 +18,8 @@ export async function signIn(page: Page, role: 'admin' | 'family' = 'admin') {
 export const rows = (page: Page) => page.locator('tbody tr.stock-row')
 export const rowFor = (page: Page, name: string) =>
   page.locator('tbody tr.stock-row', { hasText: name })
+export const compactRowFor = (page: Page, name: string) =>
+  page.locator('.compact-row', { hasText: name })
 export const shoppingEntry = (page: Page, name: string) =>
   page.locator('.shopping-items li', { hasText: name })
 

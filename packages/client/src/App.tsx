@@ -51,6 +51,7 @@ const namePlaceholders: Record<ItemCategory, string> = {
 }
 const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']
 type QuickActionMode = 'REDUCE' | 'ADD' | 'THRESHOLD'
+type QuickActionPlace = 'inventory' | 'shopping' | 'medicines'
 type StockFilter = 'ALL' | 'LOW' | 'OUT'
 type Notice = { kind: 'success' | 'error'; text: string } | null
 
@@ -233,9 +234,13 @@ function ChoiceGroup<T extends string>({
   )
 }
 
-function formatAmount(value: number, unit: Unit) {
+function unitFor(value: number, unit: Unit) {
   const label = unitLabels[unit]
-  return `${value} ${value === 1 && label.endsWith('s') && label !== 'pcs' ? label.slice(0, -1) : label}`
+  return value === 1 && label.endsWith('s') && label !== 'pcs' ? label.slice(0, -1) : label
+}
+
+function formatAmount(value: number, unit: Unit) {
+  return `${value} ${unitFor(value, unit)}`
 }
 
 const sections = ['inventory', 'shopping', 'medicines'] as const
@@ -247,6 +252,18 @@ function sectionFromHash(): Section {
   return (sections as readonly string[]).includes(hash) ? (hash as Section) : 'inventory'
 }
 
+// Phones get a different inventory layout, so the component needs to know the screen size.
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const update = () => setMatches(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+  return matches
+}
 const emptyForm = {
   name: '',
   category: 'GROCERY' as ItemCategory,
@@ -285,9 +302,12 @@ function App() {
   const [scanInfo, setScanInfo] = useState<Pick<BarcodeLookup, 'source' | 'matches'> | null>(null)
   const createDialog = useRef<HTMLDialogElement>(null)
   const quickActionInput = useRef<HTMLInputElement>(null)
+  const isPhone = useMediaQuery('(max-width: 700px)')
   const [form, setForm] = useState(emptyForm)
   const [quickActionItem, setQuickActionItem] = useState<StockItem | null>(null)
   const [quickActionMode, setQuickActionMode] = useState<QuickActionMode | null>(null)
+  // Where the amount box is shown, so it opens under the row that was tapped.
+  const [quickActionPlace, setQuickActionPlace] = useState<QuickActionPlace>('inventory')
   const [quickActionValue, setQuickActionValue] = useState('1')
   const [isQuickActionSaving, setIsQuickActionSaving] = useState(false)
   const [quickActionError, setQuickActionError] = useState('')
@@ -299,9 +319,13 @@ function App() {
   }, [])
 
   useEffect(() => {
-    quickActionInput.current?.focus()
-    quickActionInput.current?.select()
-  }, [quickActionItem?.id, quickActionMode])
+    const input = quickActionInput.current
+    if (!input) return
+    // Centre the editor so it isn't hidden behind the phone tab bar.
+    input.focus({ preventScroll: true })
+    input.select()
+    input.closest('.quick-action')?.scrollIntoView({ block: 'center' })
+  }, [quickActionItem?.id, quickActionMode, quickActionPlace])
 
   useEffect(() => {
     if (notice?.kind !== 'success') return
@@ -378,13 +402,16 @@ function App() {
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
+    // Phones hide the stock filters (the Shopping list tab covers them), so ignore them there.
+    const activeStockFilter = isPhone ? 'ALL' : stockFilter
     return items.filter(
       (item) =>
         (filter === 'ALL' || item.category === filter) &&
-        (stockFilter === 'ALL' || getStockStatus(item.quantity, item.threshold) === stockFilter) &&
+        (activeStockFilter === 'ALL' ||
+          getStockStatus(item.quantity, item.threshold) === activeStockFilter) &&
         `${item.name} ${item.notes ?? ''}`.toLowerCase().includes(query),
     )
-  }, [items, filter, search, stockFilter])
+  }, [items, filter, search, stockFilter, isPhone])
 
   const categoryCount = (category: ItemCategory) =>
     items.filter((item) => item.category === category).length
@@ -567,12 +594,18 @@ function App() {
     }
   }
 
-  function openQuickAction(item: StockItem, mode: QuickActionMode) {
+  function openQuickAction(
+    item: StockItem,
+    mode: QuickActionMode,
+    place: QuickActionPlace = 'inventory',
+    initialValue?: number,
+  ) {
     setNotice(null)
     setQuickActionError('')
     setQuickActionItem(item)
     setQuickActionMode(mode)
-    setQuickActionValue(mode === 'THRESHOLD' ? String(item.threshold) : '1')
+    setQuickActionPlace(place)
+    setQuickActionValue(mode === 'THRESHOLD' ? String(item.threshold) : String(initialValue ?? 1))
   }
 
   function closeQuickAction() {
@@ -637,23 +670,154 @@ function App() {
   }
 
   async function remove(item: StockItem) {
-    if (!token || user?.role !== 'ADMIN') return
+    if (!token || user?.role !== 'ADMIN') return false
 
     const confirmDelete = window.confirm(`Delete ${item.name}?`)
-    if (!confirmDelete) return
+    if (!confirmDelete) return false
 
     try {
       await deleteItem(token, item.id)
       if (quickActionItem?.id === item.id) closeQuickAction()
       await loadData(token)
       setNotice({ kind: 'success', text: `${item.name} deleted.` })
+      return true
     } catch (err) {
       setNotice({
         kind: 'error',
         text: err instanceof Error ? err.message : 'Unable to delete item',
       })
+      return false
     }
   }
+
+  async function deleteFromEdit(item: StockItem) {
+    if (await remove(item)) {
+      createDialog.current?.close()
+      setEditingItem(null)
+      setForm(emptyForm)
+    }
+  }
+
+  // One slim row: tap the name to edit, − / + for Used / Bought, amount box underneath.
+  function compactRows(item: StockItem, place: QuickActionPlace) {
+    const status = getStockStatus(item.quantity, item.threshold)
+    const isOpen =
+      quickActionPlace === place && quickActionItem?.id === item.id && quickActionMode !== null
+    const rows = [
+      <li
+        key={item.id}
+        className={`compact-row status-${status.toLowerCase()}${isOpen ? ' is-editing' : ''}`}
+      >
+        <button
+          type="button"
+          className="compact-main"
+          onClick={() => showEditDialog(item)}
+          aria-label={`${item.name}, ${formatAmount(item.quantity, item.unit)}${
+            status === 'OK' ? '' : `, ${statusLabels[status].toLowerCase()}`
+          }. Edit`}
+        >
+          <span className="compact-name">{item.name}</span>
+          <span className="compact-quantity">
+            {item.quantity}
+            <small>{unitFor(item.quantity, item.unit)}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="compact-step step-used"
+          onClick={() => openQuickAction(item, 'REDUCE', place)}
+          disabled={isQuickActionSaving || item.quantity <= 0}
+          aria-label="Used"
+          title={`Record that you used some ${item.name}`}
+        >
+          <Icon name="minus" />
+        </button>
+        <button
+          type="button"
+          className="compact-step step-bought"
+          onClick={() => openQuickAction(item, 'ADD', place)}
+          disabled={isQuickActionSaving}
+          aria-label="Bought"
+          title={`Record that you bought more ${item.name}`}
+        >
+          <Icon name="plus" />
+        </button>
+      </li>,
+    ]
+    if (isOpen) {
+      rows.push(
+        <li key={`${item.id}-action`} className="compact-action">
+          {quickActionEditor}
+        </li>,
+      )
+    }
+    return rows
+  }
+
+  const quickActionEditor =
+    quickActionItem && quickActionMode ? (
+      <div
+        className={`quick-action mode-${quickActionMode.toLowerCase()}`}
+        role="group"
+        aria-label="Quick action"
+      >
+        <label className="quick-action-field">
+          <span className="quick-action-title">
+            {quickActionMode === 'ADD'
+              ? 'How much did you buy?'
+              : quickActionMode === 'REDUCE'
+                ? 'How much did you use?'
+                : 'Keep at least this much at home'}
+          </span>
+          <span className="quick-action-input">
+            <input
+              ref={quickActionInput}
+              type="number"
+              min={quickActionMode === 'THRESHOLD' ? '0' : '0.01'}
+              step="0.01"
+              value={quickActionValue}
+              onChange={(e) => setQuickActionValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void applyQuickAction()
+                }
+                if (e.key === 'Escape') closeQuickAction()
+              }}
+              required
+            />
+            <span className="unit-suffix">{unitLabels[quickActionItem.unit]}</span>
+          </span>
+        </label>
+        <div className="quick-action-buttons">
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => void applyQuickAction()}
+            disabled={isQuickActionSaving}
+          >
+            {isQuickActionSaving ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={closeQuickAction}
+            disabled={isQuickActionSaving}
+          >
+            Cancel
+          </button>
+        </div>
+        <p className="quick-action-context">
+          You have {formatAmount(quickActionItem.quantity, quickActionItem.unit)}. Minimum is{' '}
+          {formatAmount(quickActionItem.threshold, quickActionItem.unit)}.
+        </p>
+        {quickActionError ? (
+          <p className="quick-action-error" role="alert">
+            {quickActionError}
+          </p>
+        ) : null}
+      </div>
+    ) : null
 
   if (!token) {
     return (
@@ -812,16 +976,22 @@ function App() {
                 shopping list.
               </p>
             </div>
-            <div className="heading-actions">
-              <button className="secondary-button scan-button" type="button" onClick={openScanner}>
-                <Icon name="scan" />
-                Scan
-              </button>
-              <button className="primary-button" type="button" onClick={showCreateDialog}>
-                <Icon name="plus" />
-                Add item
-              </button>
-            </div>
+            {isPhone ? null : (
+              <div className="heading-actions">
+                <button
+                  className="secondary-button scan-button"
+                  type="button"
+                  onClick={openScanner}
+                >
+                  <Icon name="scan" />
+                  Scan
+                </button>
+                <button className="primary-button" type="button" onClick={showCreateDialog}>
+                  <Icon name="plus" />
+                  Add item
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="summary-grid" aria-label="Inventory overview">
@@ -864,11 +1034,16 @@ function App() {
               aria-labelledby="inventory-title"
               aria-busy={isLoading}
             >
-              <div className="section-heading">
-                <h2 id="inventory-title">Your inventory</h2>
-                <p>
-                  Showing {filteredItems.length} of {items.length} items
-                </p>
+              <div className="banner-heading tone-inventory">
+                <span className="banner-heading-icon">
+                  <Icon name="inventory" />
+                </span>
+                <div>
+                  <h2 id="inventory-title">Your inventory</h2>
+                  <p>
+                    Showing {filteredItems.length} of {items.length} items
+                  </p>
+                </div>
               </div>
               <div className="inventory-toolbar">
                 <label className="search-field">
@@ -876,45 +1051,60 @@ function App() {
                   <input
                     aria-label="Search inventory"
                     type="search"
-                    placeholder="Search by name or note"
+                    placeholder={isPhone ? 'Search' : 'Search by name or note'}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </label>
-                <div className="stock-filters" role="group" aria-label="Filter by stock">
-                  <button
-                    type="button"
-                    aria-pressed={stockFilter === 'ALL'}
-                    onClick={() => setStockFilter('ALL')}
-                  >
-                    Any stock
-                  </button>
-                  <button
-                    type="button"
-                    className="tone-low"
-                    aria-pressed={stockFilter === 'LOW'}
-                    onClick={() => setStockFilter('LOW')}
-                  >
-                    Running low <span className="filter-count">{statusCounts.LOW}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="tone-out"
-                    aria-pressed={stockFilter === 'OUT'}
-                    onClick={() => setStockFilter('OUT')}
-                  >
-                    Out of stock <span className="filter-count">{statusCounts.OUT}</span>
-                  </button>
-                </div>
+                {isPhone ? (
+                  <div className="toolbar-actions">
+                    <button
+                      className="secondary-button scan-button"
+                      type="button"
+                      onClick={openScanner}
+                    >
+                      <Icon name="scan" />
+                      Scan
+                    </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      aria-label="Add item"
+                      onClick={showCreateDialog}
+                    >
+                      <Icon name="plus" />
+                      Add
+                    </button>
+                  </div>
+                ) : (
+                  <div className="stock-filters" role="group" aria-label="Filter by stock">
+                    <button
+                      type="button"
+                      aria-pressed={stockFilter === 'ALL'}
+                      onClick={() => setStockFilter('ALL')}
+                    >
+                      Any stock
+                    </button>
+                    <button
+                      type="button"
+                      className="tone-low"
+                      aria-pressed={stockFilter === 'LOW'}
+                      onClick={() => setStockFilter('LOW')}
+                    >
+                      Running low <span className="filter-count">{statusCounts.LOW}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="tone-out"
+                      aria-pressed={stockFilter === 'OUT'}
+                      onClick={() => setStockFilter('OUT')}
+                    >
+                      Out of stock <span className="filter-count">{statusCounts.OUT}</span>
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="category-tabs" role="group" aria-label="Filter by category">
-                <button
-                  type="button"
-                  aria-pressed={filter === 'ALL'}
-                  onClick={() => setFilter('ALL')}
-                >
-                  All items <span className="filter-count">{items.length}</span>
-                </button>
                 {categories
                   .filter((category) => categoryCount(category) > 0 || filter === category)
                   .map((category) => (
@@ -923,7 +1113,12 @@ function App() {
                       type="button"
                       className={`tone-${category.toLowerCase()}`}
                       aria-pressed={filter === category}
-                      onClick={() => setFilter(category)}
+                      title={
+                        filter === category
+                          ? 'Tap again to show all items'
+                          : `Show only ${categoryLabels[category].toLowerCase()}`
+                      }
+                      onClick={() => setFilter(filter === category ? 'ALL' : category)}
                     >
                       {categoryLabels[category]}{' '}
                       <span className="filter-count">{categoryCount(category)}</span>
@@ -931,191 +1126,136 @@ function App() {
                   ))}
               </div>
 
-              <div className="table-wrap" role="region" aria-label="Inventory table" tabIndex={0}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Item</th>
-                      <th scope="col">In stock</th>
-                      <th scope="col">Minimum</th>
-                      <th scope="col">Update</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredItems.flatMap((item) => {
-                      const status = getStockStatus(item.quantity, item.threshold)
-                      const isOpen = quickActionItem?.id === item.id && quickActionMode !== null
-                      const rows = [
-                        <tr
-                          key={item.id}
-                          className={`stock-row status-${status.toLowerCase()}${isOpen ? ' is-editing' : ''}`}
-                        >
-                          <td>
-                            <div className="item-identity">
-                              <span className={`item-icon tone-${item.category.toLowerCase()}`}>
-                                <Icon name={categoryIcons[item.category]} />
-                              </span>
-                              <div>
-                                <span className="item-name">{item.name}</span>
-                                <span className="item-meta">
-                                  {categoryLabels[item.category]}
-                                  {item.medicineFor ? ` for ${personLabels[item.medicineFor]}` : ''}
+              {isPhone ? (
+                <ul className="compact-list" aria-label="Inventory items">
+                  {filteredItems.flatMap((item) => compactRows(item, 'inventory'))}
+                </ul>
+              ) : (
+                <div className="table-wrap" role="region" aria-label="Inventory table" tabIndex={0}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Item</th>
+                        <th scope="col">In stock</th>
+                        <th scope="col">Minimum</th>
+                        <th scope="col">Update</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredItems.flatMap((item) => {
+                        const status = getStockStatus(item.quantity, item.threshold)
+                        const isOpen =
+                          quickActionPlace === 'inventory' &&
+                          quickActionItem?.id === item.id &&
+                          quickActionMode !== null
+                        const rows = [
+                          <tr
+                            key={item.id}
+                            className={`stock-row status-${status.toLowerCase()}${isOpen ? ' is-editing' : ''}`}
+                          >
+                            <td>
+                              <div className="item-identity">
+                                <span className={`item-icon tone-${item.category.toLowerCase()}`}>
+                                  <Icon name={categoryIcons[item.category]} />
                                 </span>
-                                {item.notes ? (
-                                  <span className="item-notes">{item.notes}</span>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  className="link-button"
-                                  onClick={() => showEditDialog(item)}
-                                  disabled={isQuickActionSaving}
-                                  title={`Edit name, category, unit or notes for ${item.name}`}
-                                >
-                                  Edit
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                          <td data-label="In stock">
-                            <span className="quantity">
-                              {item.quantity}
-                              <small>{unitLabels[item.unit]}</small>
-                            </span>
-                            <span className={`status-pill status-${status.toLowerCase()}`}>
-                              {statusLabels[status]}
-                            </span>
-                          </td>
-                          <td data-label="Minimum">
-                            <span className="minimum-quantity">
-                              {item.threshold} <small>{unitLabels[item.unit]}</small>
-                            </span>
-                            <button
-                              type="button"
-                              className="link-button"
-                              onClick={() => openQuickAction(item, 'THRESHOLD')}
-                              disabled={isQuickActionSaving}
-                              title={`Change the minimum stock for ${item.name}`}
-                            >
-                              Change
-                            </button>
-                          </td>
-                          <td>
-                            <div className="row-actions">
-                              <button
-                                type="button"
-                                className="action-button action-used"
-                                onClick={() => openQuickAction(item, 'REDUCE')}
-                                disabled={isQuickActionSaving || item.quantity <= 0}
-                                title={`Record that you used some ${item.name}`}
-                              >
-                                <Icon name="minus" />
-                                Used
-                              </button>
-                              <button
-                                type="button"
-                                className="action-button action-bought"
-                                onClick={() => openQuickAction(item, 'ADD')}
-                                disabled={isQuickActionSaving}
-                                title={`Record that you bought more ${item.name}`}
-                              >
-                                <Icon name="plus" />
-                                Bought
-                              </button>
-                              {user?.role === 'ADMIN' ? (
-                                <button
-                                  type="button"
-                                  className="action-button action-delete"
-                                  onClick={() => void remove(item)}
-                                  disabled={isQuickActionSaving}
-                                  title={`Delete ${item.name}`}
-                                >
-                                  <Icon name="trash" />
-                                  Delete
-                                </button>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>,
-                      ]
-
-                      if (isOpen && quickActionItem && quickActionMode) {
-                        rows.push(
-                          <tr key={`${item.id}-action`} className="action-row">
-                            <td colSpan={4}>
-                              <div
-                                className={`quick-action mode-${quickActionMode.toLowerCase()}`}
-                                role="group"
-                                aria-label="Quick action"
-                              >
-                                <label className="quick-action-field">
-                                  <span className="quick-action-title">
-                                    {quickActionMode === 'ADD'
-                                      ? 'How much did you buy?'
-                                      : quickActionMode === 'REDUCE'
-                                        ? 'How much did you use?'
-                                        : 'Keep at least this much at home'}
+                                <div>
+                                  <span className="item-name">{item.name}</span>
+                                  <span className="item-meta">
+                                    {categoryLabels[item.category]}
+                                    {item.medicineFor
+                                      ? ` for ${personLabels[item.medicineFor]}`
+                                      : ''}
                                   </span>
-                                  <span className="quick-action-input">
-                                    <input
-                                      ref={quickActionInput}
-                                      type="number"
-                                      min={quickActionMode === 'THRESHOLD' ? '0' : '0.01'}
-                                      step="0.01"
-                                      value={quickActionValue}
-                                      onChange={(e) => setQuickActionValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.preventDefault()
-                                          void applyQuickAction()
-                                        }
-                                        if (e.key === 'Escape') closeQuickAction()
-                                      }}
-                                      required
-                                    />
-                                    <span className="unit-suffix">
-                                      {unitLabels[quickActionItem.unit]}
-                                    </span>
-                                  </span>
-                                </label>
-                                <div className="quick-action-buttons">
+                                  {item.notes ? (
+                                    <span className="item-notes">{item.notes}</span>
+                                  ) : null}
                                   <button
-                                    className="primary-button"
                                     type="button"
-                                    onClick={() => void applyQuickAction()}
+                                    className="link-button"
+                                    onClick={() => showEditDialog(item)}
                                     disabled={isQuickActionSaving}
+                                    title={`Edit name, category, unit or notes for ${item.name}`}
                                   >
-                                    {isQuickActionSaving ? 'Saving...' : 'Save'}
-                                  </button>
-                                  <button
-                                    className="secondary-button"
-                                    type="button"
-                                    onClick={closeQuickAction}
-                                    disabled={isQuickActionSaving}
-                                  >
-                                    Cancel
+                                    Edit
                                   </button>
                                 </div>
-                                <p className="quick-action-context">
-                                  You have{' '}
-                                  {formatAmount(quickActionItem.quantity, quickActionItem.unit)}.
-                                  Minimum is{' '}
-                                  {formatAmount(quickActionItem.threshold, quickActionItem.unit)}.
-                                </p>
-                                {quickActionError ? (
-                                  <p className="quick-action-error" role="alert">
-                                    {quickActionError}
-                                  </p>
+                              </div>
+                            </td>
+                            <td data-label="In stock">
+                              <span className="quantity">
+                                {item.quantity}
+                                <small>{unitLabels[item.unit]}</small>
+                              </span>
+                              <span className={`status-pill status-${status.toLowerCase()}`}>
+                                {statusLabels[status]}
+                              </span>
+                            </td>
+                            <td data-label="Minimum">
+                              <span className="minimum-quantity">
+                                {item.threshold} <small>{unitLabels[item.unit]}</small>
+                              </span>
+                              <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => openQuickAction(item, 'THRESHOLD')}
+                                disabled={isQuickActionSaving}
+                                title={`Change the minimum stock for ${item.name}`}
+                              >
+                                Change
+                              </button>
+                            </td>
+                            <td>
+                              <div className="row-actions">
+                                <button
+                                  type="button"
+                                  className="action-button action-used"
+                                  onClick={() => openQuickAction(item, 'REDUCE')}
+                                  disabled={isQuickActionSaving || item.quantity <= 0}
+                                  title={`Record that you used some ${item.name}`}
+                                >
+                                  <Icon name="minus" />
+                                  Used
+                                </button>
+                                <button
+                                  type="button"
+                                  className="action-button action-bought"
+                                  onClick={() => openQuickAction(item, 'ADD')}
+                                  disabled={isQuickActionSaving}
+                                  title={`Record that you bought more ${item.name}`}
+                                >
+                                  <Icon name="plus" />
+                                  Bought
+                                </button>
+                                {user?.role === 'ADMIN' ? (
+                                  <button
+                                    type="button"
+                                    className="action-button action-delete"
+                                    onClick={() => void remove(item)}
+                                    disabled={isQuickActionSaving}
+                                    title={`Delete ${item.name}`}
+                                  >
+                                    <Icon name="trash" />
+                                    Delete
+                                  </button>
                                 ) : null}
                               </div>
                             </td>
                           </tr>,
-                        )
-                      }
-                      return rows
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                        ]
+
+                        if (isOpen) {
+                          rows.push(
+                            <tr key={`${item.id}-action`} className="action-row">
+                              <td colSpan={4}>{quickActionEditor}</td>
+                            </tr>,
+                          )
+                        }
+                        return rows
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {isLoading ? (
                 <div className="empty-state" role="status">
                   <span className="loading-dot" />
@@ -1145,8 +1285,8 @@ function App() {
             </section>
 
             <aside className="shopping surface" id="shopping" aria-labelledby="shopping-title">
-              <div className="shopping-heading">
-                <span className="shopping-heading-icon">
+              <div className="banner-heading tone-shop">
+                <span className="banner-heading-icon">
                   <Icon name="basket" />
                 </span>
                 <div>
@@ -1187,25 +1327,71 @@ function App() {
                       <span className="shopping-group-count">{group.list.length}</span>
                     </h3>
                     <ul className="shopping-items">
-                      {group.list.map((item) => (
-                        <li key={item.id} className={item.outOfStock ? 'need-out' : 'need-low'}>
-                          <div>
-                            <strong>{item.name}</strong>
-                            <span className="shopping-need">
-                              {item.missingBy > 0
-                                ? `Buy ${formatAmount(item.missingBy, item.unit)}`
-                                : 'Buy more'}
+                      {group.list.flatMap((entry) => {
+                        const item = items.find((stock) => stock.id === entry.id)
+                        if (!item) return []
+                        const isOpen =
+                          quickActionPlace === 'shopping' &&
+                          quickActionItem?.id === item.id &&
+                          quickActionMode !== null
+                        const rows = [
+                          <li
+                            key={entry.id}
+                            className={`${entry.outOfStock ? 'need-out' : 'need-low'}${isOpen ? ' is-editing' : ''}`}
+                          >
+                            <button
+                              type="button"
+                              className="shopping-main"
+                              onClick={() => showEditDialog(item)}
+                              title={`Edit ${entry.name}`}
+                            >
+                              <strong>{entry.name}</strong>
+                              <span className="shopping-need">
+                                {entry.missingBy > 0
+                                  ? `Buy ${formatAmount(entry.missingBy, entry.unit)}`
+                                  : 'Buy more'}
+                              </span>
+                              <small>
+                                Have {formatAmount(entry.quantity, entry.unit)}, minimum{' '}
+                                {formatAmount(entry.threshold, entry.unit)}
+                              </small>
+                            </button>
+                            <span className="shopping-side">
+                              <span
+                                className={`status-pill status-${entry.outOfStock ? 'out' : 'low'}`}
+                              >
+                                {entry.outOfStock ? statusLabels.OUT : statusLabels.LOW}
+                              </span>
+                              <button
+                                type="button"
+                                className="action-button action-bought"
+                                disabled={isQuickActionSaving}
+                                aria-label="Bought"
+                                title={`Record that you bought ${entry.name}`}
+                                onClick={() =>
+                                  openQuickAction(
+                                    item,
+                                    'ADD',
+                                    'shopping',
+                                    entry.missingBy > 0 ? entry.missingBy : 1,
+                                  )
+                                }
+                              >
+                                <Icon name="plus" />
+                                Bought
+                              </button>
                             </span>
-                            <small>
-                              Have {formatAmount(item.quantity, item.unit)}, minimum{' '}
-                              {formatAmount(item.threshold, item.unit)}
-                            </small>
-                          </div>
-                          <span className={`status-pill status-${item.outOfStock ? 'out' : 'low'}`}>
-                            {item.outOfStock ? statusLabels.OUT : statusLabels.LOW}
-                          </span>
-                        </li>
-                      ))}
+                          </li>,
+                        ]
+                        if (isOpen) {
+                          rows.push(
+                            <li key={`${entry.id}-action`} className="shopping-action">
+                              {quickActionEditor}
+                            </li>,
+                          )
+                        }
+                        return rows
+                      })}
                     </ul>
                   </section>
                 ))
@@ -1218,9 +1404,14 @@ function App() {
             id="medicines"
             aria-labelledby="medicine-title"
           >
-            <div className="section-heading">
-              <h2 id="medicine-title">Medicines by person</h2>
-              <p>{categoryCount('MEDICINE')} medicines</p>
+            <div className="banner-heading tone-medicine">
+              <span className="banner-heading-icon">
+                <Icon name={categoryIcons.MEDICINE} />
+              </span>
+              <div>
+                <h2 id="medicine-title">Medicines by person</h2>
+                <p>{categoryCount('MEDICINE')} medicines</p>
+              </div>
             </div>
             <div className="med-grid">
               {medicineBuckets.map((bucket) => (
@@ -1232,31 +1423,8 @@ function App() {
                     {personLabels[bucket.group]}
                     <span className="person-count">{bucket.items.length}</span>
                   </h3>
-                  <ul>
-                    {bucket.items.map((item) => {
-                      const status = getStockStatus(item.quantity, item.threshold)
-                      return (
-                        <li key={item.id}>
-                          <span>{item.name}</span>
-                          <small>
-                            {formatAmount(item.quantity, item.unit)}
-                            {status !== 'OK' ? (
-                              <span className={`status-pill status-${status.toLowerCase()}`}>
-                                {statusLabels[status]}
-                              </span>
-                            ) : null}
-                          </small>
-                          <button
-                            type="button"
-                            className="link-button"
-                            onClick={() => showEditDialog(item)}
-                            title={`Edit ${item.name}, including who it is for`}
-                          >
-                            Edit
-                          </button>
-                        </li>
-                      )
-                    })}
+                  <ul className="compact-list person-list">
+                    {bucket.items.flatMap((item) => compactRows(item, 'medicines'))}
                     {bucket.items.length === 0 ? (
                       <li className="person-empty">No medicines added yet.</li>
                     ) : null}
@@ -1311,7 +1479,12 @@ function App() {
             <h2 id="create-title">{editingItem ? `Edit ${editingItem.name}` : 'Add an item'}</h2>
             <p>
               {editingItem
-                ? 'Change the details. Use Used or Bought to change how much you have.'
+                ? (() => {
+                    const status = getStockStatus(editingItem.quantity, editingItem.threshold)
+                    return `You have ${formatAmount(editingItem.quantity, editingItem.unit)}${
+                      status === 'OK' ? '' : `, ${statusLabels[status].toLowerCase()}`
+                    }. To change the amount, use Used (−) or Bought (+).`
+                  })()
                 : 'Only the name is required. You can fill in the rest later.'}
             </p>
           </div>
@@ -1491,6 +1664,18 @@ function App() {
             </p>
           ) : null}
           <div className="dialog-footer">
+            {editingItem && user?.role === 'ADMIN' ? (
+              <button
+                className="secondary-button dialog-delete"
+                title={`Delete ${editingItem.name}`}
+                type="button"
+                disabled={isCreating}
+                onClick={() => void deleteFromEdit(editingItem)}
+              >
+                <Icon name="trash" />
+                Delete
+              </button>
+            ) : null}
             <button
               className="secondary-button"
               type="button"
