@@ -27,6 +27,8 @@ Web app to manage family groceries, medicines, and household stock with low-stoc
 - Seed dataset based on your grocery and medicine examples.
 - Responsive household dashboard with inventory search, category filters, and a low-stock filter.
 - Add essentials from the **Add item** dialog; items below **Minimum stock** appear in the shopping list.
+- Share the shopping list as text (phone share sheet: Notes, WhatsApp, Messages…; copied to the
+  clipboard where sharing isn't available) or print it / save it as PDF with tick boxes.
 - Stock row actions let you add, reduce, or change the minimum; deletion remains admin-only.
 - Barcode scanning with the phone camera, a webcam, a photo, or the typed number fills in the
   Add item form (see [Barcode scanning](#barcode-scanning)).

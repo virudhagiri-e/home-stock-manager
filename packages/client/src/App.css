@@ -710,6 +710,8 @@ button[aria-pressed='true'] .filter-count {
 .table-wrap {
   width: 100%;
   overflow-x: auto;
+  /* Keeps the last row's background inside the panel's rounded border. */
+  border-radius: 0 0 14px 14px;
 }
 table {
   width: 100%;
@@ -1012,7 +1014,7 @@ td {
 
 /* Shopping list */
 .shopping {
-  padding-bottom: 8px;
+  padding-bottom: 12px;
 }
 /* Coloured section banners: blue inventory, red shopping list, pink medicines. */
 .banner-heading {
@@ -1054,6 +1056,30 @@ td {
   font-weight: 600;
   opacity: 0.92;
 }
+.banner-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  margin-left: auto;
+}
+.banner-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 11px;
+  background: rgb(255 255 255 / 22%);
+  color: #fff;
+  cursor: pointer;
+}
+.banner-button:hover {
+  background: rgb(255 255 255 / 34%);
+}
+.banner-button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
 /* Each section is framed in its banner colour. */
 .inventory-panel.surface,
 .shopping.surface,
@@ -1069,20 +1095,48 @@ td {
 .medicine-panel.surface {
   border-color: var(--medicine-text);
 }
+/* Each category is its own card, framed and headed in its colour. */
 .shopping-group {
-  border-top: 1px solid #edf0f8;
+  margin: 12px 12px 0;
+  overflow: hidden;
+  border: 2px solid color-mix(in srgb, var(--tone) 40%, #fff);
+  border-radius: 14px;
 }
-.shopping-group:first-of-type {
-  border-top: 0;
+.shopping-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  background: var(--tone-light);
 }
 .shopping-group h3 {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 9px;
-  padding: 14px 20px 4px;
+  min-width: 0;
   color: var(--tone-text);
   font-size: 15px;
   font-weight: 800;
+}
+.group-share {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--tone-text);
+  cursor: pointer;
+}
+.group-share:hover {
+  background: rgb(255 255 255 / 70%);
+}
+.group-share .icon {
+  width: 18px;
+  height: 18px;
 }
 .shopping-group-icon {
   display: grid;
@@ -1101,13 +1155,13 @@ td {
   margin-left: auto;
   padding: 1px 9px;
   border-radius: 999px;
-  background: var(--tone-light);
+  background: #fff;
   color: var(--tone-text);
   font-size: 12px;
 }
 .shopping-items {
   margin: 0;
-  padding: 0 0 8px;
+  padding: 0;
   list-style: none;
 }
 .shopping-items li {
@@ -1115,7 +1169,7 @@ td {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 16px 10px 18px;
+  padding: 10px 12px 10px 14px;
   border-top: 1px solid #edf0f8;
 }
 .shopping-items li:where(:not(.shopping-action):nth-child(odd of :not(.shopping-action))) {
@@ -1218,17 +1272,34 @@ td {
   gap: 14px;
   padding: 0 22px 22px;
 }
+/* Each person's card is framed and headed in their colour, matching their avatar. */
 .person-medicines {
+  --person: var(--primary);
+  --person-light: var(--primary-light);
   min-width: 0;
-  padding: 14px;
+  overflow: hidden;
+  border: 2px solid color-mix(in srgb, var(--person) 40%, #fff);
   border-radius: 14px;
-  background: #f7f9ff;
+  background: #fff;
+}
+.person-card-wife {
+  --person: var(--household);
+  --person-light: var(--household-light);
+}
+.person-card-child {
+  --person: var(--person-violet);
+  --person-light: var(--person-violet-light);
+}
+.person-card-family {
+  --person: var(--other);
+  --person-light: var(--other-light);
 }
 .person-medicines h3 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--person-light);
   font-size: 15px;
   font-weight: 800;
 }
@@ -1244,10 +1315,10 @@ td {
   font-size: 13px;
 }
 .person-wife {
-  background: var(--medicine);
+  background: var(--household);
 }
 .person-child {
-  background: var(--household);
+  background: var(--person-violet);
 }
 .person-family {
   background: var(--other);
@@ -1274,12 +1345,12 @@ td {
   white-space: nowrap;
 }
 .shopping-person.for-wife {
-  background: var(--medicine-light);
-  color: var(--medicine-text);
-}
-.shopping-person.for-child {
   background: var(--household-light);
   color: var(--household-text);
+}
+.shopping-person.for-child {
+  background: var(--person-violet-light);
+  color: var(--person-violet-text);
 }
 .shopping-person.for-family {
   background: var(--other-light);
@@ -1292,9 +1363,7 @@ td {
   font-weight: 700;
 }
 .person-list {
-  margin: 0 -14px -14px;
-  overflow: hidden;
-  border-radius: 0 0 14px 14px;
+  margin: 0;
 }
 .person-list .compact-row.is-editing {
   background: var(--row-active);
@@ -1980,6 +2049,10 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
   border-top: 1px solid var(--border);
   list-style: none;
 }
+/* The last row sits on the panel's rounded bottom edge; round it so the border stays visible. */
+.inventory-panel > .compact-list > li:last-child {
+  border-radius: 0 0 14px 14px;
+}
 .compact-row {
   position: relative;
   display: flex;
@@ -2141,4 +2214,74 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
 .dialog-delete:hover:not(:disabled) {
   border-color: var(--out);
   background: var(--out-light);
+}
+
+/* Print / Save as PDF: only the shopping list, in ink-friendly black and white with tick boxes. */
+@media print {
+  body,
+  .app-shell,
+  .workspace {
+    background: #fff;
+  }
+  .app-shell {
+    display: block;
+    padding: 0;
+  }
+  .sidebar,
+  .skip-link,
+  .page-heading,
+  .summary-grid,
+  #inventory,
+  #medicines,
+  .toast,
+  .banner-actions,
+  .group-share,
+  .shopping-side button,
+  .shopping-action {
+    display: none !important;
+  }
+  .page-content,
+  .inventory-layout {
+    display: block;
+    padding: 0;
+  }
+  #shopping {
+    display: block !important;
+    border: 0;
+    box-shadow: none;
+  }
+  .banner-heading {
+    padding: 0 0 8px;
+    border-bottom: 2px solid #000;
+    border-radius: 0;
+    background: none;
+    color: #000;
+  }
+  .banner-heading-icon {
+    display: none;
+  }
+  .shopping-group-head {
+    padding-inline: 0;
+  }
+  .shopping-group {
+    margin: 12px 0 0;
+    border: 0;
+  }
+  .shopping-items li {
+    padding-left: 0;
+    background: none !important;
+    break-inside: avoid;
+  }
+  .shopping-items li::before {
+    content: '';
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-top: 3px;
+    border: 1.5px solid #000;
+    border-radius: 3px;
+  }
+  .shopping-main {
+    flex: 1;
+  }
 }

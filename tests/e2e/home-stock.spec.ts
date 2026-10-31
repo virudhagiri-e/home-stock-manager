@@ -219,6 +219,53 @@ test('shopping list: Bought is prefilled with the amount to buy, and names open 
   await edit.getByRole('button', { name: 'Close edit item' }).click()
 })
 
+test('the shopping list can be shared as text, or copied when sharing is unavailable', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.addInitScript(() => {
+    const w = window as unknown as { sharedText?: string }
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (data: ShareData) => {
+        w.sharedText = data.text
+      },
+    })
+  })
+  await signIn(page)
+  await page.getByRole('button', { name: 'Share shopping list' }).click()
+  const shared = await page.evaluate(
+    () => (window as unknown as { sharedText?: string }).sharedText,
+  )
+  expect(shared).toMatch(/^🛒 Shopping list – /)
+  expect(shared).toContain('\nGroceries\n')
+  expect(shared).toContain('☐ Jaggery cubes Sweden – 200 g')
+  expect(shared).toContain('☐ Albendazole adult – 3 tablets (for Family)')
+  expect(shared).toContain('☐ Volini big tube – 4 pcs (out of stock)')
+
+  await page
+    .getByRole('region', { name: 'Medicines to buy' })
+    .getByRole('button', { name: 'Share medicines list' })
+    .click()
+  const medicinesOnly = await page.evaluate(
+    () => (window as unknown as { sharedText?: string }).sharedText,
+  )
+  expect(medicinesOnly).toMatch(/^🛒 Medicines to buy – /)
+  expect(medicinesOnly).toContain('☐ Albendazole adult – 3 tablets (for Family)')
+  expect(medicinesOnly).not.toContain('Jaggery')
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined })
+  })
+  await page.getByRole('button', { name: 'Share shopping list' }).click()
+  await expect(page.getByRole('status')).toContainText('Shopping list copied')
+  // The Windows clipboard turns \n into \r\n.
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied.replace(/\r\n/g, '\n')).toBe(shared)
+  await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible()
+})
+
 test('phones show medicines one per line with quick actions', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
@@ -364,7 +411,7 @@ test('editing a medicine moves it to another person and keeps its stock', async 
   await dialog.getByLabel('Name', { exact: true }).fill(itemName)
   await dialog.getByLabel('Quantity at home', { exact: true }).fill('3')
   await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toHaveText(
-    /Alex\s*Robin\s*Child\s*Family/,
+    /Family\s*Robin\s*Child\s*Alex/,
   )
   await choice(dialog, 'For whom', 'Robin').check()
   await dialog.getByRole('button', { name: 'Add medicine', exact: true }).click()

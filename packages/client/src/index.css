@@ -33,6 +33,10 @@
   --other: #0c8599;
   --other-text: #0b7285;
   --other-light: #dcf5f8;
+  /* Person colour for the second medicine group, distinct from the Medicines pink. */
+  --person-violet: #7048e8;
+  --person-violet-text: #5f3dc4;
+  --person-violet-light: #efe9ff;
 
   --out: #e03131;
   --out-text: #c92a2a;

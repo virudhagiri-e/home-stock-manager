@@ -50,7 +50,7 @@ const namePlaceholders: Record<ItemCategory, string> = {
   HOUSEHOLD: 'e.g. Dishwasher tablets',
   OTHER: 'e.g. AA batteries',
 }
-const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'CHILD', 'FAMILY']
+const medicineGroups: MedicineFor[] = ['FAMILY', 'WIFE', 'CHILD', 'ME']
 type QuickActionMode = 'REDUCE' | 'ADD' | 'THRESHOLD'
 type QuickActionPlace = 'inventory' | 'shopping' | 'medicines'
 type StockFilter = 'ALL' | 'LOW' | 'OUT'
@@ -126,6 +126,8 @@ const iconPaths = {
   arrow: 'M5 12h14m-5-5 5 5-5 5',
   alert: 'M12 8v5m0 3v.1M3 20h18L12 3 3 20Z',
   scan: 'M4 7V5a1 1 0 0 1 1-1h2m10 0h2a1 1 0 0 1 1 1v2m0 10v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8m3-8v8m3-8v8m3-8v8',
+  share: 'M12 3v12m-4-8 4-4 4 4M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8',
+  print: 'M7 9V3h10v6M7 18H4v-8h16v8h-3M7 14h10v7H7z',
 } as const
 type IconName = keyof typeof iconPaths
 const categoryIcons: Record<ItemCategory, IconName> = {
@@ -492,6 +494,52 @@ function App() {
     setFilter(category)
     setStockFilter('ALL')
     setSearch('')
+  }
+
+  // Plain text that reads well in Notes, WhatsApp, Messages or e-mail; one category or all.
+  function shoppingListText(category?: ItemCategory) {
+    const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    const groups = category
+      ? shoppingGroups.filter((group) => group.category === category)
+      : shoppingGroups
+    const lines = [
+      category ? `🛒 ${categoryLabels[category]} to buy – ${date}` : `🛒 Shopping list – ${date}`,
+    ]
+    for (const group of groups) {
+      lines.push('')
+      if (!category) lines.push(categoryLabels[group.category])
+      for (const entry of group.list) {
+        const amount = entry.missingBy > 0 ? formatAmount(entry.missingBy, entry.unit) : 'more'
+        const notes = [
+          entry.category === 'MEDICINE' && entry.medicineFor
+            ? `for ${personLabels[entry.medicineFor]}`
+            : '',
+          entry.outOfStock ? 'out of stock' : '',
+        ].filter(Boolean)
+        lines.push(`☐ ${entry.name} – ${amount}${notes.length ? ` (${notes.join(', ')})` : ''}`)
+      }
+    }
+    return lines.join('\n')
+  }
+
+  async function shareShoppingList(category?: ItemCategory) {
+    const text = shoppingListText(category)
+    const what = category ? `${categoryLabels[category]} list` : 'Shopping list'
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: what, text })
+        return
+      } catch (err) {
+        // Closing the share sheet is not an error; anything else falls back to copying.
+        if (err instanceof DOMException && err.name === 'AbortError') return
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setNotice({ kind: 'success', text: `${what} copied. Paste it into Notes or a chat.` })
+    } catch {
+      setNotice({ kind: 'error', text: `Could not share or copy the ${what.toLowerCase()}.` })
+    }
   }
 
   function resetFilters() {
@@ -1394,6 +1442,28 @@ function App() {
                         }`}
                   </p>
                 </div>
+                {shop.length > 0 ? (
+                  <div className="banner-actions">
+                    <button
+                      type="button"
+                      className="banner-button"
+                      aria-label="Share shopping list"
+                      title="Share as text (Notes, WhatsApp, Messages…)"
+                      onClick={() => void shareShoppingList()}
+                    >
+                      <Icon name="share" />
+                    </button>
+                    <button
+                      type="button"
+                      className="banner-button"
+                      aria-label="Print or save as PDF"
+                      title="Print or save as PDF"
+                      onClick={() => window.print()}
+                    >
+                      <Icon name="print" />
+                    </button>
+                  </div>
+                ) : null}
               </div>
               {isLoading ? (
                 <p className="shopping-empty" role="status">
@@ -1414,13 +1484,24 @@ function App() {
                     className={`shopping-group tone-${group.category.toLowerCase()}`}
                     aria-label={`${categoryLabels[group.category]} to buy`}
                   >
-                    <h3>
-                      <span className="shopping-group-icon">
-                        <Icon name={categoryIcons[group.category]} />
-                      </span>
-                      {categoryLabels[group.category]}
-                      <span className="shopping-group-count">{group.list.length}</span>
-                    </h3>
+                    <div className="shopping-group-head">
+                      <h3>
+                        <span className="shopping-group-icon">
+                          <Icon name={categoryIcons[group.category]} />
+                        </span>
+                        {categoryLabels[group.category]}
+                        <span className="shopping-group-count">{group.list.length}</span>
+                      </h3>
+                      <button
+                        type="button"
+                        className="group-share"
+                        aria-label={`Share ${categoryLabels[group.category].toLowerCase()} list`}
+                        title={`Share or copy just the ${categoryLabels[group.category].toLowerCase()}`}
+                        onClick={() => void shareShoppingList(group.category)}
+                      >
+                        <Icon name="share" />
+                      </button>
+                    </div>
                     <ul className="shopping-items">
                       {group.list.flatMap((entry) => {
                         const item = items.find((stock) => stock.id === entry.id)
@@ -1545,7 +1626,10 @@ function App() {
               {medicineBuckets
                 .filter((bucket) => !medicineSearch.trim() || bucket.items.length > 0)
                 .map((bucket) => (
-                  <article key={bucket.group} className="person-medicines">
+                  <article
+                    key={bucket.group}
+                    className={`person-medicines person-card-${bucket.group.toLowerCase()}`}
+                  >
                     <h3>
                       <span className={`person-avatar person-${bucket.group.toLowerCase()}`}>
                         {personLabels[bucket.group].charAt(0)}
