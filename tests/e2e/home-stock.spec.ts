@@ -654,6 +654,12 @@ test('phones show one slim line per item, and tapping one opens Edit', async ({ 
   await expect(amount).toHaveValue('100')
   await amount.press('ArrowUp')
   await expect(amount).toHaveValue('150')
+  const steps = page.locator('.quick-action .amount-steps button')
+  await steps.first().click()
+  await expect(amount).toHaveValue('200')
+  await steps.last().click()
+  await steps.last().click()
+  await expect(amount).toHaveValue('100')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await compactRowFor(page, 'Jeera')

@@ -127,6 +127,8 @@ const iconPaths = {
   alert: 'M12 8v5m0 3v.1M3 20h18L12 3 3 20Z',
   scan: 'M4 7V5a1 1 0 0 1 1-1h2m10 0h2a1 1 0 0 1 1 1v2m0 10v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8m3-8v8m3-8v8m3-8v8',
   share: 'M12 3v12m-4-8 4-4 4 4M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8',
+  up: 'm6 15 6-6 6 6',
+  down: 'm6 9 6 6 6-6',
   print: 'M7 9V3h10v6M7 18H4v-8h16v8h-3M7 14h10v7H7z',
 } as const
 type IconName = keyof typeof iconPaths
@@ -792,6 +794,15 @@ function App() {
     )
   }
 
+  function stepQuickAction(direction: 1 | -1) {
+    if (!quickActionItem) return
+    const step = unitStep(quickActionItem.unit)
+    const current = parseNumericInput(quickActionValue)
+    const base = Number.isNaN(current) ? 0 : current
+    const next = Math.max(0, Number((base + direction * step).toFixed(2)))
+    setQuickActionValue(String(next))
+  }
+
   function closeQuickAction() {
     setQuickActionItem(null)
     setQuickActionMode(null)
@@ -973,6 +984,15 @@ function App() {
               }}
               required
             />
+            {/* Own ▲/▼ buttons: phone browsers don't show number-box arrows. Keyboard users have ↑/↓. */}
+            <span className="amount-steps" aria-hidden="true">
+              <button type="button" tabIndex={-1} onClick={() => stepQuickAction(1)}>
+                <Icon name="up" />
+              </button>
+              <button type="button" tabIndex={-1} onClick={() => stepQuickAction(-1)}>
+                <Icon name="down" />
+              </button>
+            </span>
             <span className="unit-suffix">{unitLabels[quickActionItem.unit]}</span>
           </span>
         </label>

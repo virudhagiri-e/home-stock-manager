@@ -939,14 +939,52 @@ td {
 .quick-action-input {
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 240px;
+  gap: 6px;
+  max-width: 300px;
 }
 .quick-action-input input {
   flex: 1;
-  min-width: 90px;
+  min-width: 70px;
   font-size: 18px;
   font-weight: 700;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+/* Our own ▲/▼ buttons replace the browser's tiny arrows, which phones don't show. */
+.quick-action-input input::-webkit-inner-spin-button,
+.quick-action-input input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.amount-steps {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-rows: 1fr 1fr;
+  width: 40px;
+  height: 48px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+.amount-steps button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.amount-steps button + button {
+  border-top: 1px solid var(--border);
+}
+.amount-steps button:hover,
+.amount-steps button:active {
+  background: var(--primary-light);
+}
+.amount-steps .icon {
+  width: 18px;
+  height: 18px;
 }
 .unit-suffix {
   flex-shrink: 0;
