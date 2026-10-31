@@ -219,6 +219,26 @@ test('shopping list: Bought is prefilled with the amount to buy, and names open 
   await edit.getByRole('button', { name: 'Close edit item' }).click()
 })
 
+test('the add form shows a camera text tip that fits the phone', async ({ browser }) => {
+  const agents = {
+    iphone:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    android:
+      'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36',
+  }
+  for (const [device, userAgent] of Object.entries(agents)) {
+    const context = await browser.newContext({ userAgent, viewport: { width: 390, height: 844 } })
+    const page = await context.newPage()
+    await signIn(page)
+    await page.getByRole('button', { name: 'Add item', exact: true }).click()
+    const name = page.getByRole('dialog').getByLabel('Name', { exact: true })
+    await expect(name).toHaveAccessibleDescription(
+      device === 'iphone' ? /AutoFill → Scan Text/ : /Gboard keyboard.*Scan text/,
+    )
+    await context.close()
+  }
+})
+
 test('the shopping list can be shared as text, or copied when sharing is unavailable', async ({
   page,
   context,
@@ -404,6 +424,7 @@ test('add item dialog offers units and examples that fit each category', async (
   const name = dialog.getByLabel('Name', { exact: true })
   const unitChips = dialog.getByRole('group', { name: 'Unit', exact: true }).getByRole('radio')
   await expect(dialog.locator('select')).toHaveCount(0)
+  await expect(dialog.locator('.scan-text-hint')).toHaveCount(0)
 
   await expect(choice(dialog, 'Category', 'Groceries')).toBeChecked()
   await expect(dialog.getByLabel('Quantity at home', { exact: true })).toHaveValue('')

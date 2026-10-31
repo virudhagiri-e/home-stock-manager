@@ -279,6 +279,18 @@ function shortDate() {
   return new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
+// Phones can read text from the camera into any text box; the steps differ per platform.
+const textScanHint = (() => {
+  const agent = navigator.userAgent
+  const isIos =
+    /iPhone|iPad|iPod/.test(agent) || (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1)
+  if (isIos) return 'Tip: tap the name box again → AutoFill → Scan Text to read it from the pack.'
+  if (/Android/.test(agent)) {
+    return 'Tip: on the Gboard keyboard, open the ⋯ menu → Scan text to read it from the pack.'
+  }
+  return null
+})()
+
 const sections = ['inventory', 'shopping', 'medicines'] as const
 type Section = (typeof sections)[number]
 
@@ -1910,9 +1922,15 @@ function App() {
               value={form.name}
               placeholder={namePlaceholders[form.category]}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+              aria-describedby={!editingItem && textScanHint ? 'scan-text-hint' : undefined}
               required
             />
           </label>
+          {!editingItem && textScanHint ? (
+            <p className="scan-text-hint" id="scan-text-hint">
+              {textScanHint}
+            </p>
+          ) : null}
 
           {!editingItem && createMode === 'medicine' ? null : (
             <ChoiceGroup
