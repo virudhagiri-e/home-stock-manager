@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { choice, compactRowFor, rowFor, rows, shoppingEntry, signIn } from './helpers'
+import {
+  choice,
+  compactRowFor,
+  confirmDelete,
+  rowFor,
+  rows,
+  shoppingEntry,
+  signIn,
+} from './helpers'
 
 async function saveQuickAction(page: Page, value: string) {
   const input = page.locator('.quick-action input')
@@ -25,7 +33,7 @@ test('login and view shopping list', async ({ page }) => {
   await expect(shopping.getByRole('region', { name: 'Household to buy' })).toContainText(
     'Volini big tube',
   )
-  await expect(page.getByRole('heading', { name: 'Medicines by person' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Medicines', exact: true })).toBeVisible()
   await expect(page).toHaveTitle('Home Stock Manager')
 })
 
@@ -50,8 +58,14 @@ test('add inventory item and verify it appears in table', async ({ page }) => {
   await expect(row.locator('.quantity')).toHaveText('2pcs')
   await expect(row).toContainText('In stock')
   await expect(shoppingEntry(page, itemName)).toHaveCount(0)
-  page.once('dialog', (confirmation) => confirmation.accept())
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: `Delete ${itemName}?` })
+    .getByRole('button', { name: 'Keep it', exact: true })
+    .click()
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  await confirmDelete(page, itemName)
   await expect(row).toHaveCount(0)
 })
 
@@ -75,15 +89,15 @@ test('an item added with only a name defaults to kg and goes on the shopping lis
   await expect(listed).toContainText('Buy more')
   await expect(listed).toContainText('Have 0 kg, minimum 0 kg')
 
-  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const inventory = page.getByRole('region', { name: 'Inventory', exact: true })
   await inventory.getByRole('button', { name: /^Out of stock/ }).click()
   const row = rowFor(page, itemName)
   await expect(row.locator('.quantity')).toHaveText('0kg')
   await expect(row.locator('.status-pill')).toHaveText('Out of stock')
   await expect(row.getByRole('button', { name: 'Used', exact: true })).toBeDisabled()
 
-  page.once('dialog', (confirmation) => confirmation.accept())
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  await confirmDelete(page, itemName)
   await expect(row).toHaveCount(0)
   await expect(listed).toHaveCount(0)
 })
@@ -143,15 +157,16 @@ test('row actions update quantity and minimum and keep shopping list in sync', a
 test('new medicines appear in the right person group and shopping list', async ({ page }) => {
   await signIn(page)
   const itemName = `E2E Medicine ${Date.now()}`
-  await page.getByRole('button', { name: 'Add item', exact: true }).click()
-  const dialog = page.getByRole('dialog')
+  await page.getByRole('button', { name: 'Add medicine', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add a medicine' })
+  await expect(dialog.getByRole('group', { name: 'Category', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: /Scan it/ })).toHaveCount(0)
   await dialog.getByLabel('Name', { exact: true }).fill(itemName)
-  await choice(dialog, 'Category', 'Medicines').check()
   await choice(dialog, 'Unit', 'tablets').check()
   await dialog.getByLabel('Quantity at home', { exact: true }).fill('2')
   await dialog.getByLabel('Minimum stock', { exact: true }).fill('5')
   await choice(dialog, 'For whom', 'Child').check()
-  await dialog.getByRole('button', { name: 'Add item', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Add medicine', exact: true }).click()
   await expect(dialog).not.toBeVisible()
 
   const medicine = page
@@ -162,12 +177,16 @@ test('new medicines appear in the right person group and shopping list', async (
     medicine.getByRole('button', { name: `${itemName}, 2 tablets, running low. Edit` }),
   ).toBeVisible()
   await expect(shoppingEntry(page, itemName)).toContainText('Buy 3 tablets')
+  await expect(shoppingEntry(page, itemName).locator('.shopping-person')).toHaveText('for Child')
   await page.getByRole('searchbox', { name: 'Search inventory' }).fill(itemName)
-  const row = rowFor(page, itemName)
-  await expect(row).toContainText('Medicines for Child')
-  page.once('dialog', (confirmation) => confirmation.accept())
-  await row.getByRole('button', { name: 'Delete', exact: true }).click()
-  await expect(row).toHaveCount(0)
+  await expect(rowFor(page, itemName)).toHaveCount(0)
+
+  await page.getByRole('searchbox', { name: 'Search medicines' }).fill(itemName)
+  await expect(page.locator('.person-medicines')).toHaveCount(1)
+  await medicine.locator('.compact-main').click()
+  const edit = page.getByRole('dialog', { name: `Edit ${itemName}` })
+  await edit.getByRole('button', { name: 'Delete', exact: true }).click()
+  await confirmDelete(page, itemName)
   await expect(medicine).toHaveCount(0)
 })
 
@@ -204,7 +223,7 @@ test('phones show medicines one per line with quick actions', async ({ page }) =
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
   await page.getByRole('link', { name: 'Medicines' }).click()
-  const medicines = page.getByRole('region', { name: 'Medicines by person' })
+  const medicines = page.getByRole('region', { name: 'Medicines', exact: true })
   await expect(medicines.locator('.compact-row')).toHaveCount(18)
   const heights = await medicines
     .locator('.compact-row')
@@ -230,7 +249,7 @@ test('summary counts are links that filter the inventory and open the shopping l
 }) => {
   await signIn(page)
   const overview = page.getByRole('region', { name: 'Inventory overview' })
-  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const inventory = page.getByRole('region', { name: 'Inventory', exact: true })
 
   await overview.getByRole('link', { name: /^Groceries 15/ }).click()
   await expect(inventory.getByRole('button', { name: 'Groceries 15' })).toHaveAttribute(
@@ -238,13 +257,13 @@ test('summary counts are links that filter the inventory and open the shopping l
     'true',
   )
   await expect(rows(page)).toHaveCount(15)
-  await expect(page.getByRole('heading', { name: 'Your inventory' })).toBeInViewport()
+  await expect(page.getByRole('heading', { name: 'Inventory', exact: true })).toBeInViewport()
 
   await overview.getByRole('link', { name: /^Medicines 18/ }).click()
-  await expect(rows(page)).toHaveCount(18)
+  await expect(page.getByRole('heading', { name: 'Medicines', exact: true })).toBeInViewport()
 
-  await overview.getByRole('link', { name: /^All essentials 35/ }).click()
-  await expect(rows(page)).toHaveCount(35)
+  await overview.getByRole('link', { name: /^Inventory 17/ }).click()
+  await expect(rows(page)).toHaveCount(17)
 
   const toBuy = overview.getByRole('link', { name: /^To buy 8/ })
   await expect(toBuy).toContainText('1 out of stock, 7 running low')
@@ -254,7 +273,7 @@ test('summary counts are links that filter the inventory and open the shopping l
 
 test('search, category, and stock filters combine and reset', async ({ page }) => {
   await signIn(page)
-  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const inventory = page.getByRole('region', { name: 'Inventory', exact: true })
   await inventory.getByRole('button', { name: 'Household 2' }).click()
   await expect(rows(page)).toHaveCount(2)
   await inventory.getByRole('button', { name: /^Out of stock/ }).click()
@@ -273,28 +292,29 @@ test('search, category, and stock filters combine and reset', async ({ page }) =
     'aria-pressed',
     'true',
   )
-  await expect(rows(page)).toHaveCount(35)
+  await expect(rows(page)).toHaveCount(17)
   await inventory.getByRole('button', { name: /^Running low/ }).click()
-  await expect(rows(page)).toHaveCount(7)
+  await expect(rows(page)).toHaveCount(6)
   await page.getByRole('searchbox', { name: 'Search inventory' }).fill('jaggery')
   await expect(rows(page)).toHaveCount(2)
 })
 
 test('category chips toggle: tap to filter, tap again to show everything', async ({ page }) => {
   await signIn(page)
-  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const inventory = page.getByRole('region', { name: 'Inventory', exact: true })
   const groceries = inventory.getByRole('button', { name: 'Groceries 15' })
-  const medicines = inventory.getByRole('button', { name: 'Medicines 18' })
+  const household = inventory.getByRole('button', { name: 'Household 2' })
+  await expect(inventory.getByRole('button', { name: /^Medicines/ })).toHaveCount(0)
 
   await groceries.click()
   await expect(groceries).toHaveAttribute('aria-pressed', 'true')
   await expect(rows(page)).toHaveCount(15)
-  await medicines.click()
+  await household.click()
   await expect(groceries).toHaveAttribute('aria-pressed', 'false')
-  await expect(rows(page)).toHaveCount(18)
-  await medicines.click()
-  await expect(medicines).toHaveAttribute('aria-pressed', 'false')
-  await expect(rows(page)).toHaveCount(35)
+  await expect(rows(page)).toHaveCount(2)
+  await household.click()
+  await expect(household).toHaveAttribute('aria-pressed', 'false')
+  await expect(rows(page)).toHaveCount(17)
 })
 
 test('add item dialog offers units and examples that fit each category', async ({ page }) => {
@@ -306,11 +326,26 @@ test('add item dialog offers units and examples that fit each category', async (
   await expect(dialog.locator('select')).toHaveCount(0)
 
   await expect(choice(dialog, 'Category', 'Groceries')).toBeChecked()
+  await expect(dialog.getByLabel('Quantity at home', { exact: true })).toHaveValue('')
+  await expect(dialog.getByLabel('Quantity at home', { exact: true })).toHaveAttribute(
+    'placeholder',
+    '0',
+  )
+  await expect(dialog.getByLabel('Minimum stock', { exact: true })).toHaveValue('')
+  await expect(choice(dialog, 'Category', 'Medicines')).toHaveCount(0)
   await expect(choice(dialog, 'Unit', 'kg')).toBeChecked()
   await expect(unitChips).toHaveCount(7)
   await expect(choice(dialog, 'Unit', 'strips')).toHaveCount(0)
 
-  await choice(dialog, 'Category', 'Medicines').check()
+  await choice(dialog, 'Category', 'Household').check()
+  await expect(choice(dialog, 'Unit', 'pieces')).toBeChecked()
+  await expect(unitChips).toHaveCount(5)
+  await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toHaveCount(0)
+  await expect(name).toHaveAttribute('placeholder', 'e.g. Dishwasher tablets')
+  await dialog.getByRole('button', { name: 'Close add item' }).click()
+
+  await page.getByRole('button', { name: 'Add medicine', exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: 'Add a medicine' })).toBeVisible()
   await expect(choice(dialog, 'Unit', 'strips')).toBeChecked()
   await expect(dialog.getByRole('group', { name: 'Unit', exact: true })).toHaveText(
     /strips\s*tablets\s*bottles\s*packets/,
@@ -318,37 +353,35 @@ test('add item dialog offers units and examples that fit each category', async (
   await expect(unitChips).toHaveCount(4)
   await expect(choice(dialog, 'For whom', 'Family')).toBeChecked()
   await expect(name).toHaveAttribute('placeholder', 'e.g. Paracetamol 500 mg')
-
-  await choice(dialog, 'Category', 'Household').check()
-  await expect(choice(dialog, 'Unit', 'pieces')).toBeChecked()
-  await expect(unitChips).toHaveCount(5)
-  await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toHaveCount(0)
-  await expect(name).toHaveAttribute('placeholder', 'e.g. Dishwasher tablets')
 })
 
 test('editing a medicine moves it to another person and keeps its stock', async ({ page }) => {
   await signIn(page)
   const itemName = `E2E Edit Medicine ${Date.now()}`
   const renamed = `${itemName} 500 mg`
-  await page.getByRole('button', { name: 'Add item', exact: true }).click()
+  await page.getByRole('button', { name: 'Add medicine', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Name', { exact: true }).fill(itemName)
-  await choice(dialog, 'Category', 'Medicines').check()
   await dialog.getByLabel('Quantity at home', { exact: true }).fill('3')
-  await choice(dialog, 'For whom', 'Wife').check()
-  await dialog.getByRole('button', { name: 'Add item', exact: true }).click()
+  await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toHaveText(
+    /Alex\s*Robin\s*Child\s*Family/,
+  )
+  await choice(dialog, 'For whom', 'Robin').check()
+  await dialog.getByRole('button', { name: 'Add medicine', exact: true }).click()
   await expect(dialog).not.toBeVisible()
 
   const personList = (person: RegExp) =>
     page.locator('.person-medicines', { has: page.getByRole('heading', { name: person }) })
-  await expect(personList(/Wife/)).toContainText(itemName)
+  await expect(personList(/Robin/)).toContainText(itemName)
 
-  await page.getByRole('searchbox', { name: 'Search inventory' }).fill(itemName)
-  const row = rowFor(page, itemName)
-  await row.getByRole('button', { name: 'Edit', exact: true }).click()
+  await personList(/Robin/)
+    .locator('.compact-row', { hasText: itemName })
+    .locator('.compact-main')
+    .click()
   await expect(dialog.getByRole('heading', { name: `Edit ${itemName}` })).toBeVisible()
   await expect(dialog.getByLabel('Quantity at home')).toHaveCount(0)
   await expect(choice(dialog, 'Unit', 'strips')).toBeChecked()
+  await expect(choice(dialog, 'Category', 'Medicines')).toBeChecked()
 
   await dialog.getByLabel('Name', { exact: true }).fill('Dolo 650')
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
@@ -364,36 +397,42 @@ test('editing a medicine moves it to another person and keeps its stock', async 
   await expect(dialog).not.toBeVisible()
   await expect(page.getByRole('status')).toContainText(`Saved changes to ${renamed}.`)
 
-  await page.getByRole('searchbox', { name: 'Search inventory' }).fill(renamed)
-  const renamedRow = rowFor(page, renamed)
-  await expect(renamedRow).toContainText('Medicines for Child')
-  await expect(renamedRow).toContainText('Keep in the top drawer')
-  await expect(renamedRow.locator('.quantity')).toHaveText('3tablets')
-  await expect(personList(/Child/)).toContainText(renamed)
-  await expect(personList(/Wife/)).not.toContainText(itemName)
+  const renamedRow = personList(/Child/).locator('.compact-row', { hasText: renamed })
+  await expect(
+    renamedRow.getByRole('button', { name: `${renamed}, 3 tablets. Edit` }),
+  ).toBeVisible()
+  await expect(personList(/Robin/)).not.toContainText(itemName)
 
   await page.getByRole('button', { name: 'Add item', exact: true }).click()
   await expect(dialog.getByRole('heading', { name: 'Add an item' })).toBeVisible()
   await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('')
-  await page.keyboard.press('Escape')
+  await dialog.getByRole('button', { name: 'Close add item' }).click()
 
-  page.once('dialog', (confirmation) => confirmation.accept())
-  await renamedRow.getByRole('button', { name: 'Delete', exact: true }).click()
+  await renamedRow.locator('.compact-main').click()
+  await expect(dialog.getByLabel(/^Notes/)).toHaveValue('Keep in the top drawer')
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+  await confirmDelete(page, renamed)
   await expect(renamedRow).toHaveCount(0)
 })
 
-test('add item dialog supports keyboard dismissal and medicine fields', async ({ page }) => {
+test('add item dialog supports keyboard dismissal; medicines have their own dialog', async ({
+  page,
+}) => {
   await signIn(page)
   const addButton = page.getByRole('button', { name: 'Add item', exact: true })
   await addButton.click()
   const dialog = page.getByRole('dialog')
-  await choice(dialog, 'Category', 'Medicines').check()
-  await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toBeVisible()
-  await choice(dialog, 'Category', 'Groceries').check()
+  await expect(choice(dialog, 'Category', 'Medicines')).toHaveCount(0)
   await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(dialog).not.toBeVisible()
   await expect(addButton).toBeFocused()
+
+  await page.getByRole('button', { name: 'Add medicine', exact: true }).click()
+  await expect(dialog.getByRole('group', { name: 'For whom', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('group', { name: 'Category', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
 })
 
 test('family users can manage stock but cannot delete items', async ({ page }) => {
@@ -454,9 +493,9 @@ test('mobile layout keeps navigation, inventory, and dialogs within the viewport
 test('phones show one section per tab without duplicate shortcuts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
-  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const inventory = page.getByRole('region', { name: 'Inventory', exact: true })
   const shopping = page.getByRole('complementary', { name: 'Shopping list' })
-  const medicines = page.getByRole('region', { name: 'Medicines by person' })
+  const medicines = page.getByRole('region', { name: 'Medicines', exact: true })
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
 
   await expect(page.getByRole('region', { name: 'Inventory overview' })).toBeHidden()
@@ -469,6 +508,7 @@ test('phones show one section per tab without duplicate shortcuts', async ({ pag
   const navBox = await nav.boundingBox()
   expect(navBox!.y + navBox!.height).toBeCloseTo(844, 0)
   await expect(nav.getByRole('link', { name: 'Shopping list 8' })).toBeVisible()
+  await expect(nav.getByRole('link')).toHaveText([/^Inventory/, 'Medicines', /^Shopping list/])
 
   const addButton = page.getByRole('button', { name: 'Add item', exact: true })
   await expect(addButton).toBeInViewport()
@@ -490,11 +530,12 @@ test('phones show one section per tab without duplicate shortcuts', async ({ pag
 test('phones show one slim line per item, and tapping one opens Edit', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
-  const inventory = page.getByRole('region', { name: 'Your inventory' })
+  const inventory = page.getByRole('region', { name: 'Inventory', exact: true })
 
   await expect(page.locator('table')).toHaveCount(0)
   await expect(inventory.getByRole('group', { name: 'Filter by stock' })).toHaveCount(0)
-  await expect(inventory.locator('.compact-row')).toHaveCount(35)
+  await expect(inventory.locator('.compact-row')).toHaveCount(17)
+  await expect(inventory.getByRole('button', { name: 'Scan', exact: true })).toHaveText('')
   const heights = await inventory
     .locator('.compact-row')
     .evaluateAll((rowsList) => rowsList.map((row) => row.getBoundingClientRect().height))
@@ -504,6 +545,15 @@ test('phones show one slim line per item, and tapping one opens Edit', async ({ 
   await expect(volini).toHaveClass(/status-out/)
   await expect(volini).toContainText('0pcs')
   await expect(volini.getByRole('button', { name: 'Used', exact: true })).toBeDisabled()
+
+  await compactRowFor(page, 'Asafoetida')
+    .getByRole('button', { name: 'Bought', exact: true })
+    .click()
+  const amount = page.locator('.quick-action input')
+  await expect(amount).toHaveValue('100')
+  await amount.press('ArrowUp')
+  await expect(amount).toHaveValue('150')
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await compactRowFor(page, 'Jeera')
     .getByRole('button', { name: /^Jeera, 500 g/ })
@@ -525,8 +575,8 @@ test('phones show one slim line per item, and tapping one opens Edit', async ({ 
   await compactRowFor(page, itemName).locator('.compact-main').click()
   const editNew = page.getByRole('dialog', { name: `Edit ${itemName}` })
   await expect(editNew).toContainText('You have 0 kg, out of stock.')
-  page.once('dialog', (confirmation) => confirmation.accept())
   await editNew.getByRole('button', { name: 'Delete', exact: true }).click()
+  await confirmDelete(page, itemName)
   await expect(editNew).toBeHidden()
   await expect(compactRowFor(page, itemName)).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

@@ -43,7 +43,8 @@
 
 /* Buttons */
 .primary-button,
-.secondary-button {
+.secondary-button,
+.danger-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -65,6 +66,13 @@
 }
 .primary-button:hover:not(:disabled) {
   background: var(--primary-dark);
+}
+.danger-button {
+  background: var(--out-text);
+  color: #fff;
+}
+.danger-button:hover:not(:disabled) {
+  background: #a51d1d;
 }
 .secondary-button {
   border-color: var(--border);
@@ -397,13 +405,29 @@ textarea {
   font-weight: 600;
 }
 .nav-link:hover {
-  background: var(--primary-light);
-  color: var(--primary-dark);
+  background: var(--tab-light);
+  color: var(--tab-dark);
 }
 .nav-link[aria-current='location'] {
-  background: var(--primary);
+  background: var(--tab);
   color: #fff;
   font-weight: 700;
+}
+/* Each tab uses its section's banner colour. */
+.nav-link[href='#inventory'] {
+  --tab: var(--primary);
+  --tab-dark: var(--primary-dark);
+  --tab-light: var(--primary-light);
+}
+.nav-link[href='#medicines'] {
+  --tab: var(--medicine-text);
+  --tab-dark: var(--medicine-text);
+  --tab-light: var(--medicine-light);
+}
+.nav-link[href='#shopping'] {
+  --tab: var(--out);
+  --tab-dark: var(--out-text);
+  --tab-light: var(--out-light);
 }
 .nav-count {
   margin-left: auto;
@@ -420,7 +444,7 @@ textarea {
 }
 .nav-link[aria-current='location'] .nav-count {
   background: #fff;
-  color: var(--primary-dark);
+  color: var(--tab-dark);
 }
 .nav-link[aria-current='location'] .nav-count-alert {
   color: var(--out-text);
@@ -595,6 +619,14 @@ textarea {
 }
 
 /* Inventory filters */
+.toolbar-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.medicine-toolbar {
+  margin-bottom: 16px;
+}
 .inventory-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -707,11 +739,22 @@ td {
   border-bottom: 1px solid #edf0f8;
   vertical-align: middle;
 }
-.stock-row.status-out td:first-child {
-  box-shadow: inset 5px 0 0 var(--out);
+.stock-row td:first-child {
+  position: relative;
 }
-.stock-row.status-low td:first-child {
-  box-shadow: inset 5px 0 0 var(--low);
+.stock-row.status-out td:first-child::before,
+.stock-row.status-low td:first-child::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 6px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--low);
+}
+.stock-row.status-out td:first-child::before {
+  background: var(--out);
 }
 .stock-row:hover,
 .stock-row.is-editing {
@@ -977,7 +1020,7 @@ td {
   align-items: center;
   gap: 12px;
   padding: 20px 20px 14px;
-  border-radius: 15px 15px 0 0;
+  border-radius: 14px 14px 0 0;
   background: var(--banner, var(--primary));
   color: #fff;
 }
@@ -1010,6 +1053,21 @@ td {
   font-size: 14px;
   font-weight: 600;
   opacity: 0.92;
+}
+/* Each section is framed in its banner colour. */
+.inventory-panel.surface,
+.shopping.surface,
+.medicine-panel.surface {
+  border-width: 2px;
+}
+.inventory-panel.surface {
+  border-color: var(--primary);
+}
+.shopping.surface {
+  border-color: var(--out);
+}
+.medicine-panel.surface {
+  border-color: var(--medicine-text);
 }
 .shopping-group {
   border-top: 1px solid #edf0f8;
@@ -1057,12 +1115,8 @@ td {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 16px 10px 14px;
-  border-left: 4px solid var(--low);
+  padding: 10px 16px 10px 18px;
   border-top: 1px solid #edf0f8;
-}
-.shopping-items li.need-out {
-  border-left-color: var(--out);
 }
 .shopping-items li:where(:not(.shopping-action):nth-child(odd of :not(.shopping-action))) {
   background: var(--row-a);
@@ -1195,11 +1249,41 @@ td {
 .person-child {
   background: var(--household);
 }
-.person-both {
-  background: var(--grocery);
-}
 .person-family {
   background: var(--other);
+}
+/* Who a medicine on the shopping list is for, in that person's colour. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.shopping-person {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.shopping-person.for-wife {
+  background: var(--medicine-light);
+  color: var(--medicine-text);
+}
+.shopping-person.for-child {
+  background: var(--household-light);
+  color: var(--household-text);
+}
+.shopping-person.for-family {
+  background: var(--other-light);
+  color: var(--other-text);
 }
 .person-count {
   margin-left: auto;
@@ -1409,8 +1493,8 @@ td {
     height: 22px;
   }
   .nav-link[aria-current='location'] {
-    background: var(--primary-light);
-    color: var(--primary-dark);
+    background: var(--tab-light);
+    color: var(--tab-dark);
   }
   .nav-count {
     display: none;
@@ -1449,20 +1533,14 @@ td {
   .medicine-panel {
     margin-top: 0;
   }
+  /* Phones: the coloured section banners already say where you are. */
   .page-heading {
-    margin-bottom: 14px;
-  }
-  .page-heading h1 {
-    font-size: 21px;
-    letter-spacing: -0.4px;
-  }
-  .page-heading p {
-    display: none;
-  }
-  .toolbar-actions {
-    display: flex;
-    flex-shrink: 0;
-    gap: 6px;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .toolbar-actions > button {
     gap: 5px;
@@ -1470,9 +1548,18 @@ td {
     padding-inline: 12px;
     font-size: 14px;
   }
+  .toolbar-actions > .icon-only {
+    justify-content: center;
+    width: 44px;
+    padding-inline: 0;
+  }
   .toolbar-actions .icon {
     width: 18px;
     height: 18px;
+  }
+  .toolbar-actions > .icon-only .icon {
+    width: 22px;
+    height: 22px;
   }
   .toolbar-actions > .scan-button {
     border-color: var(--primary);
@@ -1525,27 +1612,38 @@ td {
     display: block;
   }
   .auth-story {
-    gap: 20px;
-    padding: 22px;
+    gap: 12px;
+    padding: 16px 22px 18px;
   }
   .auth-story-content {
     margin: 0;
   }
+  /* Phones: a smaller illustration and tighter spacing, so sign-in fits without scrolling. */
   .pantry-illustration {
-    max-height: 150px;
-    margin-bottom: 14px;
-  }
-  .auth-story h1 {
-    font-size: 30px;
+    max-height: 110px;
+    margin-bottom: 10px;
   }
   .auth-story-content > p {
-    font-size: 15px;
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .auth-story h1 {
+    font-size: 22px;
+    letter-spacing: -0.6px;
   }
   .auth-features {
     display: none;
   }
   .auth-form-panel {
-    padding: 30px 22px 40px;
+    padding: 22px 22px 28px;
+  }
+  .auth-card h2 {
+    font-size: 26px;
+  }
+  .auth-form {
+    gap: 14px;
+    margin-top: 18px;
   }
   input,
   select,
@@ -1587,6 +1685,16 @@ td {
 }
 
 /* Inventory rows become cards whenever the inventory panel is narrow, at any screen size. */
+/* Short phones (e.g. iPhone SE): drop the intro text so Sign in stays on screen. */
+@media (max-width: 700px) and (max-height: 740px) {
+  .pantry-illustration {
+    max-height: 80px;
+  }
+  .auth-story-content > p {
+    display: none;
+  }
+}
+
 .inventory-panel {
   container: inventory / inline-size;
 }
@@ -1637,9 +1745,9 @@ td {
   .stock-row.status-out {
     border-left-color: var(--out);
   }
-  .stock-row.status-out td:first-child,
-  .stock-row.status-low td:first-child {
-    box-shadow: none;
+  .stock-row.status-out td:first-child::before,
+  .stock-row.status-low td:first-child::before {
+    display: none;
   }
   .stock-row td[data-label]::before {
     content: attr(data-label);
@@ -1873,22 +1981,31 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
   list-style: none;
 }
 .compact-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: 54px;
-  padding: 5px 10px 5px 0;
-  border-left: 5px solid transparent;
+  padding: 5px 10px 5px 5px;
   background: var(--row-a);
 }
 .compact-row:nth-child(even of .compact-row) {
   background: var(--row-b);
 }
-.compact-row.status-low {
-  border-left-color: var(--low);
+/* Stock warning: a short rounded bar set in from the section border, so the two don't merge. */
+.compact-row.status-low::before,
+.compact-row.status-out::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 5px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--low);
 }
-.compact-row.status-out {
-  border-left-color: var(--out);
+.compact-row.status-out::before {
+  background: var(--out);
 }
 .compact-row.is-editing {
   background: var(--row-active);
@@ -1922,7 +2039,7 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
 .compact-quantity {
   display: grid;
   flex-shrink: 0;
-  justify-items: end;
+  justify-items: center;
   font-size: 16px;
   font-weight: 800;
   line-height: 1.15;
@@ -1933,6 +2050,14 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+}
+.compact-quantity.inline-unit {
+  display: block;
+  text-align: right;
+}
+.compact-quantity.inline-unit small {
+  margin-left: 3px;
+  font-size: 13px;
 }
 .status-low .compact-quantity {
   color: var(--low-text);
@@ -1970,6 +2095,48 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
   margin-right: auto;
   border-color: var(--out-light);
   color: var(--out-text);
+}
+
+/* In-app "Delete …?" confirmation, centred on every screen size. */
+.confirm-dialog {
+  width: min(360px, calc(100% - 32px));
+  padding: 24px 22px 20px;
+  border: 0;
+  border-radius: 18px;
+  color: var(--ink);
+  text-align: center;
+  box-shadow: 0 24px 80px rgb(30 34 64 / 30%);
+}
+.confirm-dialog::backdrop {
+  background: rgb(30 34 64 / 45%);
+}
+.confirm-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--out-light);
+  color: var(--out-text);
+}
+.confirm-dialog h2 {
+  font-size: 19px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.confirm-dialog p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.confirm-actions > button {
+  flex: 1;
 }
 .dialog-delete:hover:not(:disabled) {
   border-color: var(--out);

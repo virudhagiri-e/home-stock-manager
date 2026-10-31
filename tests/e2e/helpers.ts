@@ -8,8 +8,8 @@ export async function signIn(page: Page, role: 'admin' | 'family' = 'admin') {
     .getByLabel('Password', { exact: true })
     .fill(role === 'admin' ? 'Admin@1234' : 'Family@1234')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Your inventory' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Your inventory' })).toHaveAttribute(
+  await expect(page.getByRole('heading', { name: 'Inventory', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Inventory', exact: true })).toHaveAttribute(
     'aria-busy',
     'false',
   )
@@ -27,3 +27,11 @@ export const choice = (scope: Locator, group: string, option: string) =>
   scope
     .getByRole('group', { name: group, exact: true })
     .getByRole('radio', { name: option, exact: true })
+
+// Answers the in-app "Delete …?" box after a Delete button was pressed.
+export async function confirmDelete(page: Page, name: string) {
+  const box = page.getByRole('dialog', { name: `Delete ${name}?` })
+  await expect(box).toBeInViewport({ ratio: 1 })
+  await box.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(box).toBeHidden()
+}

@@ -74,7 +74,6 @@ export function groupMedicinesByOwner(items: InventoryItem[]) {
   const grouped: Record<string, InventoryItem[]> = {
     ME: [],
     WIFE: [],
-    BOTH: [],
     CHILD: [],
     FAMILY: [],
     UNKNOWN: [],

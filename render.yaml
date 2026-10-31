@@ -19,6 +19,8 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: MEDICINE_PEOPLE
+        sync: false
   - type: web
     name: home-stock-web
     runtime: static

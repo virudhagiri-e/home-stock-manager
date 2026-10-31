@@ -85,4 +85,34 @@ describe('runtime configuration', () => {
     vi.stubEnv('DATABASE_TRANSPORT', 'http')
     await expect(import('./config.js')).rejects.toThrow()
   })
+
+  it('uses neutral medicine group names unless MEDICINE_PEOPLE is set', async () => {
+    productionEnvironment()
+    vi.stubEnv('MEDICINE_PEOPLE', undefined)
+    const { env } = await import('./config.js')
+    expect(env.MEDICINE_PEOPLE).toEqual({
+      ME: 'Me',
+      WIFE: 'Partner',
+      CHILD: 'Child',
+      FAMILY: 'Family',
+    })
+  })
+
+  it('reads medicine group names from MEDICINE_PEOPLE', async () => {
+    productionEnvironment()
+    vi.stubEnv('MEDICINE_PEOPLE', ' me = Alex , child=Sam ')
+    const { env } = await import('./config.js')
+    expect(env.MEDICINE_PEOPLE).toEqual({
+      ME: 'Alex',
+      WIFE: 'Partner',
+      CHILD: 'Sam',
+      FAMILY: 'Family',
+    })
+  })
+
+  it.each(['BOTH=Us', 'ME', 'ME='])('rejects the MEDICINE_PEOPLE entry "%s"', async (value) => {
+    productionEnvironment()
+    vi.stubEnv('MEDICINE_PEOPLE', value)
+    await expect(import('./config.js')).rejects.toThrow('MEDICINE_PEOPLE entries')
+  })
 })

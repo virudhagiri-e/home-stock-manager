@@ -45,7 +45,7 @@ export const itemSchema = z.object({
   quantity: z.number().nonnegative(),
   threshold: z.number().nonnegative(),
   notes: z.string().max(500).optional(),
-  medicineFor: z.enum(['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']).optional(),
+  medicineFor: z.enum(['ME', 'WIFE', 'CHILD', 'FAMILY']).optional(),
   barcode: barcodeSchema.nullable().optional(),
 })
 

@@ -81,7 +81,7 @@ const seedItems: SeedItem[] = [
     unit: 'TABLET',
     quantity: 3,
     threshold: 6,
-    medicineFor: 'BOTH',
+    medicineFor: 'FAMILY',
   },
   {
     name: 'Cetirizine',
@@ -89,7 +89,7 @@ const seedItems: SeedItem[] = [
     unit: 'TABLET',
     quantity: 75,
     threshold: 20,
-    medicineFor: 'BOTH',
+    medicineFor: 'FAMILY',
   },
   {
     name: 'Dolo 650',
@@ -121,7 +121,7 @@ const seedItems: SeedItem[] = [
     unit: 'TABLET',
     quantity: 40,
     threshold: 20,
-    medicineFor: 'BOTH',
+    medicineFor: 'FAMILY',
   },
   {
     name: 'Clavam 625',
@@ -129,7 +129,7 @@ const seedItems: SeedItem[] = [
     unit: 'TABLET',
     quantity: 50,
     threshold: 20,
-    medicineFor: 'BOTH',
+    medicineFor: 'FAMILY',
   },
   {
     name: 'Vitamin D',
@@ -137,7 +137,7 @@ const seedItems: SeedItem[] = [
     unit: 'TABLET',
     quantity: 12,
     threshold: 12,
-    medicineFor: 'BOTH',
+    medicineFor: 'FAMILY',
   },
 
   {

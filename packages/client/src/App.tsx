@@ -7,6 +7,7 @@ import {
   listItems,
   login,
   lookupBarcode,
+  medicinePeople,
   shoppingList,
   updateItem,
 } from './api'
@@ -49,7 +50,7 @@ const namePlaceholders: Record<ItemCategory, string> = {
   HOUSEHOLD: 'e.g. Dishwasher tablets',
   OTHER: 'e.g. AA batteries',
 }
-const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'BOTH', 'CHILD', 'FAMILY']
+const medicineGroups: MedicineFor[] = ['ME', 'WIFE', 'CHILD', 'FAMILY']
 type QuickActionMode = 'REDUCE' | 'ADD' | 'THRESHOLD'
 type QuickActionPlace = 'inventory' | 'shopping' | 'medicines'
 type StockFilter = 'ALL' | 'LOW' | 'OUT'
@@ -78,6 +79,11 @@ const unitLabels: Record<Unit, string> = {
   BOTTLE: 'bottles',
   PACKET: 'packets',
 }
+// Short unit labels sit beside the number in one-line rows; long ones (tablets…) go underneath.
+const shortUnits = new Set<Unit>(['COUNT', 'GRAM', 'KILOGRAM', 'MILLILITER', 'LITER'])
+// How much the Bought/Used arrows change at a time, and the amount they start at.
+const unitStep = (unit: Unit) => (unit === 'GRAM' || unit === 'MILLILITER' ? 50 : 1)
+const unitStartAmount = (unit: Unit) => (unit === 'GRAM' || unit === 'MILLILITER' ? 100 : 1)
 const unitNames: Record<Unit, string> = {
   KILOGRAM: 'kg',
   GRAM: 'g',
@@ -89,10 +95,10 @@ const unitNames: Record<Unit, string> = {
   TABLET: 'tablets',
   STRIP: 'strips',
 }
-const personLabels: Record<MedicineFor, string> = {
+// Real names come from the API after sign-in (MEDICINE_PEOPLE), so they never ship in the public bundle.
+const defaultPersonLabels: Record<MedicineFor, string> = {
   ME: 'Me',
-  WIFE: 'Wife',
-  BOTH: 'Both of us',
+  WIFE: 'Partner',
   CHILD: 'Child',
   FAMILY: 'Family',
 }
@@ -234,6 +240,30 @@ function ChoiceGroup<T extends string>({
   )
 }
 
+// Number box for amounts: empty (not "0") when nothing is entered, and the arrows step by whole numbers.
+function AmountInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [text, setText] = useState(value === 0 ? '' : String(value))
+  const [lastValue, setLastValue] = useState(value)
+  if (value !== lastValue) {
+    setLastValue(value)
+    if (Number(text || 0) !== value) setText(value === 0 ? '' : String(value))
+  }
+  return (
+    <input
+      type="number"
+      inputMode="decimal"
+      min="0"
+      step="any"
+      placeholder="0"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value)
+        onChange(e.target.value === '' ? 0 : Number(e.target.value))
+      }}
+    />
+  )
+}
+
 function unitFor(value: number, unit: Unit) {
   const label = unitLabels[unit]
   return value === 1 && label.endsWith('s') && label !== 'pcs' ? label.slice(0, -1) : label
@@ -290,6 +320,10 @@ function App() {
   const [filter, setFilter] = useState<ItemCategory | 'ALL'>('ALL')
   const [stockFilter, setStockFilter] = useState<StockFilter>('ALL')
   const [search, setSearch] = useState('')
+  const [medicineSearch, setMedicineSearch] = useState('')
+  const [personLabels, setPersonLabels] = useState(defaultPersonLabels)
+  // The Medicines tab adds medicines only; the inventory adds everything else.
+  const [createMode, setCreateMode] = useState<'inventory' | 'medicine'>('inventory')
   const [activeSection, setActiveSection] = useState(sectionFromHash)
   const [isLoading, setIsLoading] = useState(Boolean(token))
   const [isSigningIn, setIsSigningIn] = useState(false)
@@ -301,6 +335,15 @@ function App() {
   const [scanError, setScanError] = useState('')
   const [scanInfo, setScanInfo] = useState<Pick<BarcodeLookup, 'source' | 'matches'> | null>(null)
   const createDialog = useRef<HTMLDialogElement>(null)
+  const confirmDialog = useRef<HTMLDialogElement>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ item: StockItem; fromEdit: boolean } | null>(
+    null,
+  )
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  useEffect(() => {
+    if (deleteTarget && !confirmDialog.current?.open) confirmDialog.current?.showModal()
+  }, [deleteTarget])
   const quickActionInput = useRef<HTMLInputElement>(null)
   const isPhone = useMediaQuery('(max-width: 700px)')
   const [form, setForm] = useState(emptyForm)
@@ -334,12 +377,14 @@ function App() {
   }, [notice])
 
   async function loadData(currentToken: string) {
-    const [allItems, shopping] = await Promise.all([
+    const [allItems, shopping, people] = await Promise.all([
       listItems(currentToken),
       shoppingList(currentToken),
+      medicinePeople(currentToken).catch(() => null),
     ])
     setItems(allItems)
     setShop(shopping)
+    if (people) setPersonLabels({ ...defaultPersonLabels, ...people })
   }
 
   function parseNumericInput(value: string) {
@@ -386,42 +431,54 @@ function App() {
       .catch((err: unknown) => {
         logout()
         setLoginError(
-          err instanceof Error
+          err instanceof Error && !/unauthori[sz]ed|token/i.test(err.message)
             ? err.message
-            : 'Unable to load your inventory. Please sign in again.',
+            : 'Your sign-in has expired. Please sign in again.',
         )
       })
       .finally(() => setIsLoading(false))
   }, [token])
 
+  // Medicines have their own tab, so the inventory covers everything else.
+  const inventoryItems = useMemo(
+    () => items.filter((item) => item.category !== 'MEDICINE'),
+    [items],
+  )
+
   const statusCounts = useMemo(() => {
     const counts: Record<StockStatus, number> = { OUT: 0, LOW: 0, OK: 0 }
-    for (const item of items) counts[getStockStatus(item.quantity, item.threshold)] += 1
+    for (const item of inventoryItems) counts[getStockStatus(item.quantity, item.threshold)] += 1
     return counts
-  }, [items])
+  }, [inventoryItems])
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
     // Phones hide the stock filters (the Shopping list tab covers them), so ignore them there.
     const activeStockFilter = isPhone ? 'ALL' : stockFilter
-    return items.filter(
+    return inventoryItems.filter(
       (item) =>
         (filter === 'ALL' || item.category === filter) &&
         (activeStockFilter === 'ALL' ||
           getStockStatus(item.quantity, item.threshold) === activeStockFilter) &&
         `${item.name} ${item.notes ?? ''}`.toLowerCase().includes(query),
     )
-  }, [items, filter, search, stockFilter, isPhone])
+  }, [inventoryItems, filter, search, stockFilter, isPhone])
 
   const categoryCount = (category: ItemCategory) =>
     items.filter((item) => item.category === category).length
 
   const medicineBuckets = useMemo(() => {
+    const query = medicineSearch.trim().toLowerCase()
     return medicineGroups.map((group) => ({
       group,
-      items: items.filter((item) => item.category === 'MEDICINE' && item.medicineFor === group),
+      items: items.filter(
+        (item) =>
+          item.category === 'MEDICINE' &&
+          item.medicineFor === group &&
+          `${item.name} ${item.notes ?? ''}`.toLowerCase().includes(query),
+      ),
     }))
-  }, [items])
+  }, [items, medicineSearch])
 
   const shoppingGroups = categories
     .map((category) => ({ category, list: shop.filter((item) => item.category === category) }))
@@ -441,11 +498,15 @@ function App() {
     showItems('ALL')
   }
 
-  function showCreateDialog() {
-    if (editingItem || form.barcode) {
-      setEditingItem(null)
-      setForm(emptyForm)
-    }
+  // From the Medicines tab the form starts as a medicine; from the inventory it never does.
+  function showCreateDialog(preset?: ItemCategory) {
+    const base = editingItem || form.barcode ? emptyForm : form
+    const category = preset ?? (base.category === 'MEDICINE' ? 'GROCERY' : base.category)
+    if (base !== form) setEditingItem(null)
+    setCreateMode(category === 'MEDICINE' ? 'medicine' : 'inventory')
+    setForm(
+      category === base.category ? base : { ...base, category, unit: categoryUnits[category][0] },
+    )
     setScanInfo(null)
     setCreateError('')
     createDialog.current?.showModal()
@@ -459,6 +520,12 @@ function App() {
 
   // Opens the Bought box for an item, making sure its row is visible first.
   function showBoughtFor(item: StockItem) {
+    if (item.category === 'MEDICINE') {
+      setMedicineSearch(item.name)
+      if (window.location.hash !== '#medicines') window.location.hash = '#medicines'
+      openQuickAction(item, 'ADD', 'medicines')
+      return
+    }
     setFilter('ALL')
     setStockFilter('ALL')
     setSearch(item.name)
@@ -482,6 +549,7 @@ function App() {
 
       const category = result.product?.category ?? 'GROCERY'
       setEditingItem(null)
+      setCreateMode(category === 'MEDICINE' ? 'medicine' : 'inventory')
       setForm({
         ...emptyForm,
         name: result.product?.name ?? '',
@@ -605,7 +673,13 @@ function App() {
     setQuickActionItem(item)
     setQuickActionMode(mode)
     setQuickActionPlace(place)
-    setQuickActionValue(mode === 'THRESHOLD' ? String(item.threshold) : String(initialValue ?? 1))
+    const start =
+      mode === 'REDUCE' && item.quantity > 0
+        ? Math.min(unitStartAmount(item.unit), item.quantity)
+        : unitStartAmount(item.unit)
+    setQuickActionValue(
+      mode === 'THRESHOLD' ? String(item.threshold) : String(initialValue ?? start),
+    )
   }
 
   function closeQuickAction() {
@@ -669,32 +743,34 @@ function App() {
     }
   }
 
-  async function remove(item: StockItem) {
-    if (!token || user?.role !== 'ADMIN') return false
+  function remove(item: StockItem, fromEdit = false) {
+    if (!token || user?.role !== 'ADMIN') return
+    setDeleteTarget({ item, fromEdit })
+  }
 
-    const confirmDelete = window.confirm(`Delete ${item.name}?`)
-    if (!confirmDelete) return false
-
+  async function confirmRemove() {
+    if (!token || !deleteTarget || isDeleting) return
+    const { item, fromEdit } = deleteTarget
+    setIsDeleting(true)
     try {
       await deleteItem(token, item.id)
       if (quickActionItem?.id === item.id) closeQuickAction()
+      confirmDialog.current?.close()
+      if (fromEdit) {
+        createDialog.current?.close()
+        setEditingItem(null)
+        setForm(emptyForm)
+      }
       await loadData(token)
       setNotice({ kind: 'success', text: `${item.name} deleted.` })
-      return true
     } catch (err) {
+      confirmDialog.current?.close()
       setNotice({
         kind: 'error',
         text: err instanceof Error ? err.message : 'Unable to delete item',
       })
-      return false
-    }
-  }
-
-  async function deleteFromEdit(item: StockItem) {
-    if (await remove(item)) {
-      createDialog.current?.close()
-      setEditingItem(null)
-      setForm(emptyForm)
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -717,7 +793,7 @@ function App() {
           }. Edit`}
         >
           <span className="compact-name">{item.name}</span>
-          <span className="compact-quantity">
+          <span className={`compact-quantity${shortUnits.has(item.unit) ? ' inline-unit' : ''}`}>
             {item.quantity}
             <small>{unitFor(item.quantity, item.unit)}</small>
           </span>
@@ -773,8 +849,9 @@ function App() {
             <input
               ref={quickActionInput}
               type="number"
-              min={quickActionMode === 'THRESHOLD' ? '0' : '0.01'}
-              step="0.01"
+              inputMode="decimal"
+              min="0"
+              step={unitStep(quickActionItem.unit)}
               value={quickActionValue}
               onChange={(e) => setQuickActionValue(e.target.value)}
               onKeyDown={(e) => {
@@ -899,16 +976,28 @@ function App() {
     )
   }
 
-  const summaryCards: { key: ItemCategory | 'ALL'; label: string; hint: string; count: number }[] =
-    [
-      { key: 'ALL', label: 'All essentials', hint: 'Everything at home', count: items.length },
-      ...(['GROCERY', 'MEDICINE', 'HOUSEHOLD'] as const).map((category) => ({
-        key: category,
-        label: categoryLabels[category],
-        hint: categoryHints[category],
-        count: categoryCount(category),
-      })),
-    ]
+  const summaryCards: {
+    key: ItemCategory | 'ALL'
+    label: string
+    hint: string
+    count: number
+    href: string
+  }[] = [
+    {
+      key: 'ALL',
+      label: 'Inventory',
+      hint: 'Groceries and household',
+      count: inventoryItems.length,
+      href: '#inventory',
+    },
+    ...(['GROCERY', 'MEDICINE', 'HOUSEHOLD'] as const).map((category) => ({
+      key: category,
+      label: categoryLabels[category],
+      hint: categoryHints[category],
+      count: categoryCount(category),
+      href: category === 'MEDICINE' ? '#medicines' : '#inventory',
+    })),
+  ]
 
   return (
     <div className="app-shell">
@@ -924,7 +1013,15 @@ function App() {
             aria-current={activeSection === 'inventory' ? 'location' : undefined}
           >
             <Icon name="inventory" />
-            Inventory<span className="nav-count">{items.length}</span>
+            Inventory<span className="nav-count">{inventoryItems.length}</span>
+          </a>
+          <a
+            className="nav-link"
+            href="#medicines"
+            aria-current={activeSection === 'medicines' ? 'location' : undefined}
+          >
+            <Icon name="medicine" />
+            Medicines
           </a>
           <a
             className="nav-link"
@@ -936,14 +1033,6 @@ function App() {
             {shop.length > 0 ? (
               <span className="nav-count nav-count-alert">{shop.length}</span>
             ) : null}
-          </a>
-          <a
-            className="nav-link"
-            href="#medicines"
-            aria-current={activeSection === 'medicines' ? 'location' : undefined}
-          >
-            <Icon name="medicine" />
-            Medicines
           </a>
         </nav>
         <div className="sidebar-user">
@@ -986,7 +1075,7 @@ function App() {
                   <Icon name="scan" />
                   Scan
                 </button>
-                <button className="primary-button" type="button" onClick={showCreateDialog}>
+                <button className="primary-button" type="button" onClick={() => showCreateDialog()}>
                   <Icon name="plus" />
                   Add item
                 </button>
@@ -997,14 +1086,18 @@ function App() {
           <section className="summary-grid" aria-label="Inventory overview">
             {summaryCards.map((card) => {
               const tone = card.key === 'ALL' ? 'all' : card.key.toLowerCase()
-              const selected = filter === card.key && stockFilter === 'ALL' && !search
+              const selected =
+                card.key !== 'MEDICINE' && filter === card.key && stockFilter === 'ALL' && !search
               return (
                 <a
                   key={card.key}
-                  href="#inventory"
+                  href={card.href}
                   className={`summary-card tone-${tone}${selected ? ' selected' : ''}`}
                   aria-current={selected ? 'true' : undefined}
-                  onClick={() => showItems(card.key)}
+                  onClick={() => {
+                    if (card.key === 'MEDICINE') setMedicineSearch('')
+                    else showItems(card.key)
+                  }}
                 >
                   <span className="summary-icon">
                     <Icon name={card.key === 'ALL' ? 'inventory' : categoryIcons[card.key]} />
@@ -1022,7 +1115,7 @@ function App() {
               <span className="summary-label">To buy</span>
               <span className="summary-number">{isLoading ? '...' : shop.length}</span>
               <span className="summary-hint">
-                {statusCounts.OUT} out of stock, {statusCounts.LOW} running low
+                {outOfStockToBuy} out of stock, {shop.length - outOfStockToBuy} running low
               </span>
             </a>
           </section>
@@ -1039,9 +1132,9 @@ function App() {
                   <Icon name="inventory" />
                 </span>
                 <div>
-                  <h2 id="inventory-title">Your inventory</h2>
+                  <h2 id="inventory-title">Inventory</h2>
                   <p>
-                    Showing {filteredItems.length} of {items.length} items
+                    Showing {filteredItems.length} of {inventoryItems.length} items
                   </p>
                 </div>
               </div>
@@ -1059,18 +1152,19 @@ function App() {
                 {isPhone ? (
                   <div className="toolbar-actions">
                     <button
-                      className="secondary-button scan-button"
+                      className="secondary-button scan-button icon-only"
                       type="button"
+                      aria-label="Scan"
+                      title="Scan a barcode"
                       onClick={openScanner}
                     >
                       <Icon name="scan" />
-                      Scan
                     </button>
                     <button
                       className="primary-button"
                       type="button"
                       aria-label="Add item"
-                      onClick={showCreateDialog}
+                      onClick={() => showCreateDialog()}
                     >
                       <Icon name="plus" />
                       Add
@@ -1106,6 +1200,7 @@ function App() {
               </div>
               <div className="category-tabs" role="group" aria-label="Filter by category">
                 {categories
+                  .filter((category) => category !== 'MEDICINE')
                   .filter((category) => categoryCount(category) > 0 || filter === category)
                   .map((category) => (
                     <button
@@ -1230,7 +1325,7 @@ function App() {
                                   <button
                                     type="button"
                                     className="action-button action-delete"
-                                    onClick={() => void remove(item)}
+                                    onClick={() => remove(item)}
                                     disabled={isQuickActionSaving}
                                     title={`Delete ${item.name}`}
                                   >
@@ -1263,22 +1358,22 @@ function App() {
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="empty-state">
-                  <Icon name={items.length === 0 ? 'inventory' : 'search'} />
+                  <Icon name={inventoryItems.length === 0 ? 'inventory' : 'search'} />
                   <h3>
-                    {items.length === 0
+                    {inventoryItems.length === 0
                       ? 'Make room for your essentials.'
                       : 'No matching essentials.'}
                   </h3>
                   <p>
-                    {items.length === 0
+                    {inventoryItems.length === 0
                       ? 'Add your first item to start keeping track.'
                       : 'Try a different search or reset your filters.'}
                   </p>
                   <button
                     className="secondary-button"
-                    onClick={items.length === 0 ? showCreateDialog : resetFilters}
+                    onClick={inventoryItems.length === 0 ? () => showCreateDialog() : resetFilters}
                   >
-                    {items.length === 0 ? 'Add your first item' : 'Reset filters'}
+                    {inventoryItems.length === 0 ? 'Add your first item' : 'Reset filters'}
                   </button>
                 </div>
               ) : null}
@@ -1345,7 +1440,17 @@ function App() {
                               onClick={() => showEditDialog(item)}
                               title={`Edit ${entry.name}`}
                             >
-                              <strong>{entry.name}</strong>
+                              <strong>
+                                {entry.name}
+                                {entry.category === 'MEDICINE' && entry.medicineFor ? (
+                                  <span
+                                    className={`shopping-person for-${entry.medicineFor.toLowerCase()}`}
+                                  >
+                                    <span className="visually-hidden">for </span>
+                                    {personLabels[entry.medicineFor]}
+                                  </span>
+                                ) : null}
+                              </strong>
                               <span className="shopping-need">
                                 {entry.missingBy > 0
                                   ? `Buy ${formatAmount(entry.missingBy, entry.unit)}`
@@ -1409,28 +1514,58 @@ function App() {
                 <Icon name={categoryIcons.MEDICINE} />
               </span>
               <div>
-                <h2 id="medicine-title">Medicines by person</h2>
-                <p>{categoryCount('MEDICINE')} medicines</p>
+                <h2 id="medicine-title">Medicines</h2>
+                <p>{categoryCount('MEDICINE')} medicines, by person</p>
+              </div>
+            </div>
+            <div className="inventory-toolbar medicine-toolbar">
+              <label className="search-field">
+                <Icon name="search" />
+                <input
+                  aria-label="Search medicines"
+                  type="search"
+                  placeholder={isPhone ? 'Search' : 'Search medicines'}
+                  value={medicineSearch}
+                  onChange={(e) => setMedicineSearch(e.target.value)}
+                />
+              </label>
+              <div className="toolbar-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  aria-label="Add medicine"
+                  onClick={() => showCreateDialog('MEDICINE')}
+                >
+                  <Icon name="plus" />
+                  Add
+                </button>
               </div>
             </div>
             <div className="med-grid">
-              {medicineBuckets.map((bucket) => (
-                <article key={bucket.group} className="person-medicines">
-                  <h3>
-                    <span className={`person-avatar person-${bucket.group.toLowerCase()}`}>
-                      {personLabels[bucket.group].charAt(0)}
-                    </span>
-                    {personLabels[bucket.group]}
-                    <span className="person-count">{bucket.items.length}</span>
-                  </h3>
-                  <ul className="compact-list person-list">
-                    {bucket.items.flatMap((item) => compactRows(item, 'medicines'))}
-                    {bucket.items.length === 0 ? (
-                      <li className="person-empty">No medicines added yet.</li>
-                    ) : null}
-                  </ul>
-                </article>
-              ))}
+              {medicineBuckets
+                .filter((bucket) => !medicineSearch.trim() || bucket.items.length > 0)
+                .map((bucket) => (
+                  <article key={bucket.group} className="person-medicines">
+                    <h3>
+                      <span className={`person-avatar person-${bucket.group.toLowerCase()}`}>
+                        {personLabels[bucket.group].charAt(0)}
+                      </span>
+                      {personLabels[bucket.group]}
+                      <span className="person-count">{bucket.items.length}</span>
+                    </h3>
+                    <ul className="compact-list person-list">
+                      {bucket.items.flatMap((item) => compactRows(item, 'medicines'))}
+                      {bucket.items.length === 0 ? (
+                        <li className="person-empty">No medicines added yet.</li>
+                      ) : null}
+                    </ul>
+                  </article>
+                ))}
+              {medicineSearch.trim() && medicineBuckets.every((b) => b.items.length === 0) ? (
+                <p className="person-empty" role="status">
+                  No medicines match &ldquo;{medicineSearch.trim()}&rdquo;.
+                </p>
+              ) : null}
             </div>
           </section>
         </div>
@@ -1476,7 +1611,13 @@ function App() {
       >
         <div className="dialog-heading">
           <div>
-            <h2 id="create-title">{editingItem ? `Edit ${editingItem.name}` : 'Add an item'}</h2>
+            <h2 id="create-title">
+              {editingItem
+                ? `Edit ${editingItem.name}`
+                : createMode === 'medicine'
+                  ? 'Add a medicine'
+                  : 'Add an item'}
+            </h2>
             <p>
               {editingItem
                 ? (() => {
@@ -1499,7 +1640,7 @@ function App() {
           </button>
         </div>
         <form onSubmit={submitCreate} className="item-form">
-          {editingItem || form.barcode ? null : (
+          {editingItem || form.barcode || createMode === 'medicine' ? null : (
             <button className="scan-inline" type="button" onClick={openScanner}>
               <Icon name="scan" />
               Have a barcode? Scan it to fill this in
@@ -1582,15 +1723,19 @@ function App() {
             />
           </label>
 
-          <ChoiceGroup
-            legend="Category"
-            name="category"
-            options={categories}
-            value={form.category}
-            labelFor={(category) => categoryLabels[category]}
-            toneFor={(category) => `tone-${category.toLowerCase()}`}
-            onChange={changeCategory}
-          />
+          {!editingItem && createMode === 'medicine' ? null : (
+            <ChoiceGroup
+              legend="Category"
+              name="category"
+              options={
+                editingItem ? categories : categories.filter((category) => category !== 'MEDICINE')
+              }
+              value={form.category}
+              labelFor={(category) => categoryLabels[category]}
+              toneFor={(category) => `tone-${category.toLowerCase()}`}
+              onChange={changeCategory}
+            />
+          )}
 
           {form.category === 'MEDICINE' ? (
             <ChoiceGroup
@@ -1617,28 +1762,18 @@ function App() {
             {editingItem ? null : (
               <label>
                 Quantity at home
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <AmountInput
                   value={form.quantity}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, quantity: Number(e.target.value) }))
-                  }
+                  onChange={(quantity) => setForm((prev) => ({ ...prev, quantity }))}
                 />
               </label>
             )}
 
             <label>
               Minimum stock
-              <input
-                type="number"
-                min="0"
-                step="0.01"
+              <AmountInput
                 value={form.threshold}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, threshold: Number(e.target.value) }))
-                }
+                onChange={(threshold) => setForm((prev) => ({ ...prev, threshold }))}
               />
             </label>
           </div>
@@ -1670,7 +1805,7 @@ function App() {
                 title={`Delete ${editingItem.name}`}
                 type="button"
                 disabled={isCreating}
-                onClick={() => void deleteFromEdit(editingItem)}
+                onClick={() => remove(editingItem, true)}
               >
                 <Icon name="trash" />
                 Delete
@@ -1691,11 +1826,53 @@ function App() {
                   ? 'Saving...'
                   : 'Save changes'
                 : isCreating
-                  ? 'Adding item...'
-                  : 'Add item'}
+                  ? 'Adding...'
+                  : createMode === 'medicine'
+                    ? 'Add medicine'
+                    : 'Add item'}
             </button>
           </div>
         </form>
+      </dialog>
+
+      <dialog
+        className="confirm-dialog"
+        ref={confirmDialog}
+        aria-labelledby="confirm-title"
+        aria-describedby="confirm-text"
+        onClose={() => setDeleteTarget(null)}
+      >
+        {deleteTarget ? (
+          <>
+            <span className="confirm-icon">
+              <Icon name="trash" />
+            </span>
+            <h2 id="confirm-title">Delete {deleteTarget.item.name}?</h2>
+            <p id="confirm-text">
+              It will be removed from your stock and the shopping list. This can&apos;t be undone.
+            </p>
+            <div className="confirm-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                autoFocus
+                disabled={isDeleting}
+                onClick={() => confirmDialog.current?.close()}
+              >
+                Keep it
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void confirmRemove()}
+              >
+                <Icon name="trash" />
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </>
+        ) : null}
       </dialog>
     </div>
   )

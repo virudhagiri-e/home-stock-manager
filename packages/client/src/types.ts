@@ -5,7 +5,7 @@ export type ItemCategory = 'GROCERY' | 'MEDICINE' | 'HOUSEHOLD' | 'OTHER'
 export type Unit =
   'COUNT' | 'GRAM' | 'KILOGRAM' | 'MILLILITER' | 'LITER' | 'TABLET' | 'STRIP' | 'BOTTLE' | 'PACKET'
 
-export type MedicineFor = 'ME' | 'WIFE' | 'BOTH' | 'CHILD' | 'FAMILY'
+export type MedicineFor = 'ME' | 'WIFE' | 'CHILD' | 'FAMILY'
 
 export type User = {
   id: string

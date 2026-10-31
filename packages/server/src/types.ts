@@ -23,5 +23,5 @@ export type ItemPayload = {
   quantity: number
   threshold: number
   notes?: string
-  medicineFor?: 'ME' | 'WIFE' | 'BOTH' | 'CHILD' | 'FAMILY'
+  medicineFor?: 'ME' | 'WIFE' | 'CHILD' | 'FAMILY'
 }

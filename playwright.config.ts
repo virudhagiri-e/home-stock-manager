@@ -32,6 +32,8 @@ export default defineConfig({
         ...process.env,
         OPEN_FOOD_FACTS_URL: 'http://localhost:4010/off',
         OPEN_PRODUCTS_FACTS_URL: 'http://localhost:4010/opf',
+        // Made-up names: checks that medicine group labels come from the API.
+        MEDICINE_PEOPLE: 'ME=Alex,WIFE=Robin',
       } as Record<string, string>,
     },
     {

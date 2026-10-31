@@ -1,5 +1,6 @@
 import type { Express } from 'express'
 import { Router } from 'express'
+import { env } from './config.js'
 import { authController } from './controllers/auth.controller.js'
 import { inventoryController } from './controllers/inventory.controller.js'
 import { authenticate } from './middlewares/auth.js'
@@ -25,6 +26,9 @@ export function registerRoutes(app: Express) {
   router.get('/shopping-list', authenticate, inventoryController.shoppingList)
   router.get('/barcodes/:code', authenticate, inventoryController.lookupBarcode)
   router.get('/medicines/grouped', authenticate, inventoryController.groupedMedicines)
+  router.get('/medicines/people', authenticate, (_req, res) => {
+    res.json(env.MEDICINE_PEOPLE)
+  })
 
   app.use(router)
 }

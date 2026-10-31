@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import bwipjs from 'bwip-js'
-import { choice, rowFor, signIn } from './helpers'
+import { choice, confirmDelete, rowFor, signIn } from './helpers'
 
 // Codes the local product stub knows (see product-stub.mjs).
 const NUTELLA = '3017624010701'
@@ -90,8 +90,8 @@ test('scanning a new product fills the form, and scanning it again goes to Bough
   await expect(addDialog(page)).not.toBeVisible()
 
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  page.once('dialog', (confirmation) => confirmation.accept())
   await rowFor(page, 'Nutella').getByRole('button', { name: 'Delete', exact: true }).click()
+  await confirmDelete(page, 'Nutella')
   await expect(rowFor(page, 'Nutella')).toHaveCount(0)
 })
 

@@ -33,7 +33,6 @@ enum Unit {
 enum MedicineFor {
   ME
   WIFE
-  BOTH
   CHILD
   FAMILY
 }

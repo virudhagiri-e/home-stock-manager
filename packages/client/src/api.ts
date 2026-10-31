@@ -1,4 +1,4 @@
-import type { BarcodeLookup, ShoppingItem, StockItem, User } from './types'
+import type { BarcodeLookup, MedicineFor, ShoppingItem, StockItem, User } from './types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
 
@@ -91,4 +91,8 @@ export async function shoppingList(token: string) {
 
 export async function lookupBarcode(token: string, code: string) {
   return request<BarcodeLookup>(`/barcodes/${encodeURIComponent(code)}`, {}, token)
+}
+
+export async function medicinePeople(token: string) {
+  return request<Record<MedicineFor, string>>('/medicines/people', {}, token)
 }
