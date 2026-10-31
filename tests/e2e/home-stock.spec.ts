@@ -255,6 +255,25 @@ test('the shopping list can be shared as text, or copied when sharing is unavail
   expect(medicinesOnly).toContain('☐ Albendazole adult – 3 tablets (for Family)')
   expect(medicinesOnly).not.toContain('Jaggery')
 
+  const lastShared = () =>
+    page.evaluate(() => (window as unknown as { sharedText?: string }).sharedText)
+  await page.getByRole('searchbox', { name: 'Search inventory' }).fill('jaggery')
+  await page.getByRole('button', { name: 'Share inventory' }).click()
+  const stock = await lastShared()
+  expect(stock).toMatch(/^🏠 Home stock – /)
+  expect(stock).toContain('• Jaggery cubes Sweden – 300 g (running low)')
+  expect(stock).not.toContain('Tamarind')
+
+  await page.getByRole('button', { name: 'Share medicines', exact: true }).click()
+  const allMedicines = await lastShared()
+  expect(allMedicines).toMatch(/^💊 Medicines – /)
+  expect(allMedicines).toContain('\nFamily\n')
+  expect(allMedicines).toContain('• Albendazole adult – 3 tablets (running low)')
+  await page.getByRole('button', { name: 'Share medicines for Robin' }).click()
+  const robin = await lastShared()
+  expect(robin).toMatch(/^💊 Medicines for Robin – /)
+  expect(robin).not.toContain('Albendazole')
+
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'share', { configurable: true, value: undefined })
   })
@@ -264,6 +283,20 @@ test('the shopping list can be shared as text, or copied when sharing is unavail
   const copied = await page.evaluate(() => navigator.clipboard.readText())
   expect(copied.replace(/\r\n/g, '\n')).toBe(shared)
   await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible()
+
+  await page.evaluate(() => {
+    const w = window as unknown as { printed: string[] }
+    w.printed = []
+    window.print = () => w.printed.push(document.documentElement.dataset.print ?? '')
+  })
+  await page.getByRole('button', { name: 'Print or save as PDF' }).click()
+  await page.getByRole('button', { name: 'Print inventory' }).click()
+  await page.getByRole('button', { name: 'Print medicines' }).click()
+  expect(await page.evaluate(() => (window as unknown as { printed: string[] }).printed)).toEqual([
+    'shopping',
+    'inventory',
+    'medicines',
+  ])
 })
 
 test('phones show medicines one per line with quick actions', async ({ page }) => {

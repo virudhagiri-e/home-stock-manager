@@ -275,6 +275,10 @@ function formatAmount(value: number, unit: Unit) {
   return `${value} ${unitFor(value, unit)}`
 }
 
+function shortDate() {
+  return new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
 const sections = ['inventory', 'shopping', 'medicines'] as const
 type Section = (typeof sections)[number]
 
@@ -498,7 +502,7 @@ function App() {
 
   // Plain text that reads well in Notes, WhatsApp, Messages or e-mail; one category or all.
   function shoppingListText(category?: ItemCategory) {
-    const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    const date = shortDate()
     const groups = category
       ? shoppingGroups.filter((group) => group.category === category)
       : shoppingGroups
@@ -522,9 +526,55 @@ function App() {
     return lines.join('\n')
   }
 
-  async function shareShoppingList(category?: ItemCategory) {
-    const text = shoppingListText(category)
-    const what = category ? `${categoryLabels[category]} list` : 'Shopping list'
+  function shareShoppingList(category?: ItemCategory) {
+    return shareText(
+      category ? `${categoryLabels[category]} list` : 'Shopping list',
+      shoppingListText(category),
+    )
+  }
+
+  // "Have" line for a stock item, flagging anything that needs buying.
+  function stockLine(item: StockItem) {
+    const status = getStockStatus(item.quantity, item.threshold)
+    const flag = status === 'OK' ? '' : ` (${statusLabels[status].toLowerCase()})`
+    return `• ${item.name} – ${formatAmount(item.quantity, item.unit)}${flag}`
+  }
+
+  // Shares what is currently shown in the inventory, so a search or filter narrows it.
+  function shareInventory() {
+    const lines = [`🏠 Home stock – ${shortDate()}`]
+    for (const category of categories) {
+      const list = filteredItems.filter((item) => item.category === category)
+      if (list.length === 0) continue
+      lines.push('', categoryLabels[category], ...list.map(stockLine))
+    }
+    return shareText('Home stock', lines.join('\n'))
+  }
+
+  function shareMedicines(group?: MedicineFor) {
+    const buckets = medicineBuckets.filter(
+      (bucket) => bucket.items.length > 0 && (!group || bucket.group === group),
+    )
+    const title = group ? `Medicines for ${personLabels[group]}` : 'Medicines'
+    const lines = [`💊 ${title} – ${shortDate()}`]
+    for (const bucket of buckets) {
+      lines.push('')
+      if (!group) lines.push(personLabels[bucket.group])
+      lines.push(...bucket.items.map(stockLine))
+    }
+    return shareText(title, lines.join('\n'))
+  }
+
+  // Prints one section only; the print stylesheet reads data-print on <html>.
+  function printSection(section: 'inventory' | 'medicines' | 'shopping') {
+    const root = document.documentElement
+    root.dataset.print = section
+    window.addEventListener('afterprint', () => delete root.dataset.print, { once: true })
+    window.print()
+  }
+
+  // Phone share sheet where available; otherwise copy to the clipboard.
+  async function shareText(what: string, text: string) {
     if (navigator.share) {
       try {
         await navigator.share({ title: what, text })
@@ -1185,6 +1235,28 @@ function App() {
                     Showing {filteredItems.length} of {inventoryItems.length} items
                   </p>
                 </div>
+                {filteredItems.length > 0 ? (
+                  <div className="banner-actions">
+                    <button
+                      type="button"
+                      className="banner-button"
+                      aria-label="Share inventory"
+                      title="Share or copy what's at home (only the items shown)"
+                      onClick={() => void shareInventory()}
+                    >
+                      <Icon name="share" />
+                    </button>
+                    <button
+                      type="button"
+                      className="banner-button"
+                      aria-label="Print inventory"
+                      title="Print or save as PDF (only the items shown)"
+                      onClick={() => printSection('inventory')}
+                    >
+                      <Icon name="print" />
+                    </button>
+                  </div>
+                ) : null}
               </div>
               <div className="inventory-toolbar">
                 <label className="search-field">
@@ -1458,7 +1530,7 @@ function App() {
                       className="banner-button"
                       aria-label="Print or save as PDF"
                       title="Print or save as PDF"
-                      onClick={() => window.print()}
+                      onClick={() => printSection('shopping')}
                     >
                       <Icon name="print" />
                     </button>
@@ -1598,6 +1670,28 @@ function App() {
                 <h2 id="medicine-title">Medicines</h2>
                 <p>{categoryCount('MEDICINE')} medicines, by person</p>
               </div>
+              {categoryCount('MEDICINE') > 0 ? (
+                <div className="banner-actions">
+                  <button
+                    type="button"
+                    className="banner-button"
+                    aria-label="Share medicines"
+                    title="Share or copy all medicines, by person"
+                    onClick={() => void shareMedicines()}
+                  >
+                    <Icon name="share" />
+                  </button>
+                  <button
+                    type="button"
+                    className="banner-button"
+                    aria-label="Print medicines"
+                    title="Print or save as PDF"
+                    onClick={() => printSection('medicines')}
+                  >
+                    <Icon name="print" />
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="inventory-toolbar medicine-toolbar">
               <label className="search-field">
@@ -1630,13 +1724,26 @@ function App() {
                     key={bucket.group}
                     className={`person-medicines person-card-${bucket.group.toLowerCase()}`}
                   >
-                    <h3>
-                      <span className={`person-avatar person-${bucket.group.toLowerCase()}`}>
-                        {personLabels[bucket.group].charAt(0)}
-                      </span>
-                      {personLabels[bucket.group]}
-                      <span className="person-count">{bucket.items.length}</span>
-                    </h3>
+                    <div className="person-head">
+                      <h3>
+                        <span className={`person-avatar person-${bucket.group.toLowerCase()}`}>
+                          {personLabels[bucket.group].charAt(0)}
+                        </span>
+                        {personLabels[bucket.group]}
+                        <span className="person-count">{bucket.items.length}</span>
+                      </h3>
+                      {bucket.items.length > 0 ? (
+                        <button
+                          type="button"
+                          className="group-share"
+                          aria-label={`Share medicines for ${personLabels[bucket.group]}`}
+                          title={`Share or copy ${personLabels[bucket.group]}'s medicines`}
+                          onClick={() => void shareMedicines(bucket.group)}
+                        >
+                          <Icon name="share" />
+                        </button>
+                      ) : null}
+                    </div>
                     <ul className="compact-list person-list">
                       {bucket.items.flatMap((item) => compactRows(item, 'medicines'))}
                       {bucket.items.length === 0 ? (

@@ -1294,12 +1294,23 @@ td {
   --person: var(--other);
   --person-light: var(--other-light);
 }
-.person-medicines h3 {
+.person-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 6px 8px 6px 14px;
   background: var(--person-light);
+}
+.person-head .group-share {
+  color: color-mix(in srgb, var(--person) 80%, #000);
+}
+.person-medicines h3 {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
   font-size: 15px;
   font-weight: 800;
 }
@@ -1807,12 +1818,24 @@ td {
     grid-area: actions;
     padding-right: 0;
   }
-  .stock-row.status-out,
-  .stock-row.status-low {
-    border-left: 5px solid var(--low);
+  /* Card rows: the stock warning bar spans the whole card, inset from the panel border. */
+  .stock-row {
+    position: relative;
+    padding-left: 20px;
   }
-  .stock-row.status-out {
-    border-left-color: var(--out);
+  .stock-row.status-out::after,
+  .stock-row.status-low::after {
+    content: '';
+    position: absolute;
+    top: 14px;
+    bottom: 14px;
+    left: 6px;
+    width: 4px;
+    border-radius: 2px;
+    background: var(--low);
+  }
+  .stock-row.status-out::after {
+    background: var(--out);
   }
   .stock-row.status-out td:first-child::before,
   .stock-row.status-low td:first-child::before {
@@ -2233,11 +2256,20 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
   .summary-grid,
   #inventory,
   #medicines,
+  #shopping,
   .toast,
   .banner-actions,
   .group-share,
   .shopping-side button,
-  .shopping-action {
+  .shopping-action,
+  .inventory-toolbar,
+  .category-tabs,
+  .row-actions,
+  .stock-row .link-button,
+  .compact-step,
+  .compact-action,
+  .action-row,
+  .empty-state {
     display: none !important;
   }
   .page-content,
@@ -2245,10 +2277,32 @@ tbody tr.stock-row:where(:nth-child(even of .stock-row)) {
     display: block;
     padding: 0;
   }
-  #shopping {
+  /* Print buttons set data-print; Ctrl+P without one prints the shopping list. */
+  html:not([data-print]) #shopping,
+  html[data-print='shopping'] #shopping,
+  html[data-print='inventory'] #inventory,
+  html[data-print='medicines'] #medicines {
     display: block !important;
+    margin: 0;
     border: 0;
     box-shadow: none;
+  }
+  .stock-row th:last-child,
+  .stock-row td:last-child,
+  thead th:last-child {
+    display: none;
+  }
+  .stock-row,
+  .compact-row,
+  .person-medicines {
+    break-inside: avoid;
+  }
+  .med-grid {
+    display: block;
+    padding: 0;
+  }
+  .person-medicines {
+    margin-top: 12px;
   }
   .banner-heading {
     padding: 0 0 8px;
